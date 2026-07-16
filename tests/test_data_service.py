@@ -19,6 +19,7 @@ class FakeClock:
 class FakeAdapter(MonarchAdapter):
     def __init__(self):
         self.calls = 0
+        self.account_calls = 0
         self.fail = False
 
     def _txn(self):
@@ -39,6 +40,7 @@ class FakeAdapter(MonarchAdapter):
         return [Balance(date=datetime.date(2026, 1, 2), balance=Decimal("100"), account="Checking")]
 
     def get_accounts(self):
+        self.account_calls += 1
         return [Account(name="Checking", latest_balance=Decimal("100"), as_of=datetime.date(2026, 1, 2))]
 
     def source_name(self):
@@ -99,3 +101,13 @@ def test_refresh_forces_refetch(tmp_path):
     svc.transactions()
     svc.refresh("transactions")
     assert adapter.calls == 2
+
+
+def test_accounts_never_cached(tmp_path):
+    clock = FakeClock()
+    adapter = FakeAdapter()
+    svc, _ = _svc(tmp_path, clock, adapter)
+    svc.accounts()  # first call
+    assert adapter.account_calls == 1
+    svc.accounts()  # second call should also hit adapter
+    assert adapter.account_calls == 2

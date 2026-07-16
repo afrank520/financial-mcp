@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from typing import TypeVar
 
 from financial_mcp.cache.sqlite_cache import SqliteCache
 from financial_mcp.monarch.adapter import MonarchAdapter
 from financial_mcp.monarch.models import Account, Balance, Transaction
+
+T = TypeVar("T", Account, Balance, Transaction)
 
 logger = logging.getLogger("financial_mcp")
 
@@ -14,7 +18,7 @@ class DataService:
         self._adapter = adapter
         self._cache = cache
 
-    def _get(self, data_type, fetch, model):
+    def _get(self, data_type: str, fetch: Callable[[], list[T]], model: type[T]) -> list[T]:
         if self._cache.is_fresh(data_type):
             return [model(**d) for d in self._cache.load(data_type)]
         try:
