@@ -30,7 +30,12 @@ class CsvAdapter(MonarchAdapter):
             for row in csv.DictReader(fh):
                 date = _parse_date(row["Date"])
                 merchant = row["Merchant"].strip()
-                amount = Decimal(row["Amount"].strip() or "0")
+                amount_str = row["Amount"].strip()
+                if not amount_str:
+                    raise ValueError(
+                        f"Empty Amount cell for Date={row['Date']}, Merchant={row['Merchant'].strip()}"
+                    )
+                amount = Decimal(amount_str)
                 original = row["Original Statement"].strip()
                 out.append(
                     Transaction(
@@ -52,10 +57,15 @@ class CsvAdapter(MonarchAdapter):
         out: list[Balance] = []
         with open(self._balances_path, newline="", encoding="utf-8") as fh:
             for row in csv.DictReader(fh):
+                balance_str = row["Balance"].strip()
+                if not balance_str:
+                    raise ValueError(
+                        f"Empty Balance cell for Date={row['Date']}, Account={row['Account'].strip()}"
+                    )
                 out.append(
                     Balance(
                         date=_parse_date(row["Date"]),
-                        balance=Decimal(row["Balance"].strip() or "0"),
+                        balance=Decimal(balance_str),
                         account=row["Account"].strip(),
                     )
                 )

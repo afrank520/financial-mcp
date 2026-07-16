@@ -39,3 +39,19 @@ def test_accounts_use_latest_balance():
     assert accts["Checking"].latest_balance == Decimal("3200.00")
     assert accts["Checking"].as_of == datetime.date(2026, 1, 31)
     assert accts["Credit Card"].latest_balance == Decimal("-450.00")
+
+
+def test_blank_amount_raises_error(tmp_path):
+    import pytest
+
+    csv_content = """Date,Merchant,Amount,Category,Account,Original Statement,Notes,Tags,Owner
+2026-01-02,Costco,,Groceries,Checking,COSTCO #123,test note,food,Adam
+"""
+    txn_file = tmp_path / "transactions.csv"
+    bal_file = tmp_path / "balances.csv"
+    txn_file.write_text(csv_content)
+    bal_file.write_text("Date,Balance,Account\n2026-01-02,100.00,Checking\n")
+
+    adapter = CsvAdapter(str(txn_file), str(bal_file))
+    with pytest.raises(ValueError, match=r"Empty Amount cell.*Date=2026-01-02.*Merchant=Costco"):
+        adapter.get_transactions()

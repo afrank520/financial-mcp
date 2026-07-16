@@ -49,12 +49,12 @@ def build_server(svc: DataService) -> FastMCP:
 
     @server.tool()
     def category_summary() -> list[dict]:
-        """Total spend and count per category, biggest spend first."""
+        """Net total and count per category, biggest net spend first."""
         return _jsonify(spending.category_summary(svc.transactions()))
 
     @server.tool()
     def merchant_summary() -> list[dict]:
-        """Total spend and count per merchant, biggest spend first."""
+        """Net total and count per merchant, biggest net spend first."""
         return _jsonify(spending.merchant_summary(svc.transactions()))
 
     @server.tool()

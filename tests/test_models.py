@@ -9,8 +9,18 @@ def test_transaction_synth_id_is_stable_and_hex():
     b = Transaction.synth_id(datetime.date(2026, 1, 2), "Costco", Decimal("-52.10"), "COSTCO #123")
     assert a == b
     assert len(a) == 40
+    # Changing amount produces different id
     c = Transaction.synth_id(datetime.date(2026, 1, 2), "Costco", Decimal("-52.11"), "COSTCO #123")
     assert a != c
+    # Changing date produces different id
+    d = Transaction.synth_id(datetime.date(2026, 1, 3), "Costco", Decimal("-52.10"), "COSTCO #123")
+    assert a != d
+    # Changing merchant produces different id
+    e = Transaction.synth_id(datetime.date(2026, 1, 2), "Target", Decimal("-52.10"), "COSTCO #123")
+    assert a != e
+    # Changing original_statement produces different id
+    f = Transaction.synth_id(datetime.date(2026, 1, 2), "Costco", Decimal("-52.10"), "COSTCO #456")
+    assert a != f
 
 
 def test_transaction_construction():

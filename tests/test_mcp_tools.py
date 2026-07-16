@@ -72,6 +72,8 @@ def test_get_transactions_limit(tmp_path):
     txns = _tool(server, "get_transactions")(limit=1)
     assert len(txns) == 1
     assert txns[0]["merchant"] == "Costco"
+    # Money must be serialized as string, not float
+    assert isinstance(txns[0]["amount"], str)
 
 
 def test_cache_status_tool(tmp_path):
