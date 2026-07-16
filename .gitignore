@@ -28,3 +28,6 @@ htmlcov/
 # Source briefing materials — keep local, never commit
 *.png
 *.rtf
+
+# uv lockfile (local resolver state)
+uv.lock
