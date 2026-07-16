@@ -1,0 +1,27 @@
+# Copy to config.yaml (git-ignored) and edit. NEVER put secrets here —
+# credentials live in the OS keyring, set via `financial-mcp-login`.
+
+db_path: cache.db
+log_level: INFO
+log_file: financial_mcp.log      # omit or null for stderr only
+
+# off = reads only | safe = reads + reversible writes | full = + destructive
+# IMPORTANT: Quote "off" (bare off is parsed as boolean false by YAML)
+write_mode: "safe"
+batch_cap: 200
+
+# Cache freshness in SECONDS, per data type.
+cache_ttls:
+  transactions: 43200   # 12h
+  balances: 43200       # 12h
+  investments: 43200    # 12h
+  holdings: 43200       # 12h
+  budgets: 86400        # 24h
+  networth: 86400       # 24h
+  cashflow: 86400       # 24h
+  categories: 604800    # 7d
+  merchants: 604800     # 7d
+
+# Offline CSV fallback (Plan 1). Point at copies of your Monarch exports.
+csv_transactions_path: null
+csv_balances_path: null
