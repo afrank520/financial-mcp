@@ -1,0 +1,26 @@
+# Financial data — never committed
+*.csv
+!tests/fixtures/*.csv
+
+# Local cache / secrets
+*.db
+*.db-*
+.env
+config.yaml
+keyring_fallback*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
