@@ -14,8 +14,15 @@ def _txn(merchant, category, amount, month=1, day=1, year=2026):
     d = datetime.date(year, month, day)
     return Transaction(
         id=Transaction.synth_id(d, merchant, Decimal(amount), merchant),
-        date=d, merchant=merchant, category=category, account="Checking",
-        original_statement=merchant, notes="", amount=Decimal(amount), tags=[], owner="Adam",
+        date=d,
+        merchant=merchant,
+        category=category,
+        account="Checking",
+        original_statement=merchant,
+        notes="",
+        amount=Decimal(amount),
+        tags=[],
+        owner="Adam",
     )
 
 

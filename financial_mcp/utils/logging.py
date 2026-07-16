@@ -15,9 +15,7 @@ def mask(value: str) -> str:
 
 def mask_mapping(d: dict, sensitive_keys: set[str]) -> dict:
     lowered = {k.lower() for k in sensitive_keys}
-    return {
-        k: (mask(str(v)) if k.lower() in lowered else v) for k, v in d.items()
-    }
+    return {k: (mask(str(v)) if k.lower() in lowered else v) for k, v in d.items()}
 
 
 def configure_logging(cfg: Config) -> logging.Logger:

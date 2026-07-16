@@ -21,8 +21,7 @@ class SqliteCache:
         self._ttls = ttls
         self._clock = clock
         self._conn = sqlite3.connect(db_path)
-        self._conn.execute(
-            """
+        self._conn.execute("""
             CREATE TABLE IF NOT EXISTS cache_entries (
                 data_type TEXT PRIMARY KEY,
                 payload TEXT NOT NULL,
@@ -30,8 +29,7 @@ class SqliteCache:
                 source TEXT NOT NULL,
                 schema_version INTEGER NOT NULL
             )
-            """
-        )
+            """)
         self._conn.commit()
 
     def _ttl_for(self, data_type: str) -> int:

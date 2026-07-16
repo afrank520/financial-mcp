@@ -32,5 +32,7 @@ def test_transaction_construction():
 
 def test_balance_and_account():
     bal = Balance(date=datetime.date(2026, 1, 2), balance=Decimal("1000.00"), account="Checking")
-    acct = Account(name="Checking", latest_balance=Decimal("1000.00"), as_of=datetime.date(2026, 1, 2))
+    acct = Account(
+        name="Checking", latest_balance=Decimal("1000.00"), as_of=datetime.date(2026, 1, 2)
+    )
     assert bal.account == acct.name

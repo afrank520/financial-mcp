@@ -26,8 +26,15 @@ class FakeAdapter(MonarchAdapter):
         d = datetime.date(2026, 1, 2)
         return Transaction(
             id=Transaction.synth_id(d, "Costco", Decimal("-5.00"), "COSTCO"),
-            date=d, merchant="Costco", category="Groceries", account="Checking",
-            original_statement="COSTCO", notes="", amount=Decimal("-5.00"), tags=[], owner="Adam",
+            date=d,
+            merchant="Costco",
+            category="Groceries",
+            account="Checking",
+            original_statement="COSTCO",
+            notes="",
+            amount=Decimal("-5.00"),
+            tags=[],
+            owner="Adam",
         )
 
     def get_transactions(self):
@@ -41,7 +48,9 @@ class FakeAdapter(MonarchAdapter):
 
     def get_accounts(self):
         self.account_calls += 1
-        return [Account(name="Checking", latest_balance=Decimal("100"), as_of=datetime.date(2026, 1, 2))]
+        return [
+            Account(name="Checking", latest_balance=Decimal("100"), as_of=datetime.date(2026, 1, 2))
+        ]
 
     def source_name(self):
         return "fake"

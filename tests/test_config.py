@@ -14,16 +14,12 @@ def test_defaults_when_no_file():
 
 def test_yaml_overrides_defaults(tmp_path):
     p = tmp_path / "config.yaml"
-    p.write_text(
-        textwrap.dedent(
-            """
+    p.write_text(textwrap.dedent("""
             write_mode: "off"
             batch_cap: 50
             cache_ttls:
               transactions: 3600
-            """
-        )
-    )
+            """))
     cfg = load_config(str(p))
     assert cfg.write_mode == "off"
     assert cfg.batch_cap == 50
