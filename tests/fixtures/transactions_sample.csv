@@ -1,0 +1,5 @@
+Date,Merchant,Category,Account,Original Statement,Notes,Amount,Tags,Owner
+2026-01-02,Costco,Groceries,Checking,COSTCO WHSE #123,weekly run,-152.10,"food,bulk",Adam
+2026-01-03,Paycheck,Income,Checking,ACME PAYROLL,,2500.00,,Adam
+2026-01-05,Netflix,Entertainment,Credit Card,NETFLIX.COM,,-15.99,subscription,Adam
+2026-01-10,Costco,Groceries,Checking,COSTCO WHSE #123,,-88.40,food,Adam
