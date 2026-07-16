@@ -152,17 +152,20 @@ reflects the change.
 Reads are free; writes are gated; destructive writes are gated hardest. Governed by a single
 config value **`write_mode: off | safe | full`**, shipping default **`safe`**.
 
-- **Tier 0 — Reads.** All analytics/query tools. No gate. `write_mode: off` allows only these.
+- **Tier 0 — Reads.** All analytics/query/reference tools. No gate. `write_mode: off` allows only these.
 - **Tier 1 — Safe/reversible writes** (the cleanup use case): categorize transactions, set tags,
-  set/update merchant, set budget amount. Enabled at `write_mode: safe` and `full`. Guardrails:
+  update notes, mark reviewed, split a transaction, set/update merchant, set budget amount.
+  Enabled at `write_mode: safe` and `full`. Guardrails:
   - **`dry_run` defaults to true** — the tool returns exactly what *would* change; nothing is
     written until Claude re-invokes with `dry_run=false` after the user confirms.
   - **Batch cap** — configurable max records per operation, **default 200**.
   - **Audit log** — every applied change recorded append-only in SQLite (entity id, field,
     old value → new value, timestamp, operation id).
 - **Tier 2 — Destructive/irreversible writes**: create/delete transaction, delete goal, merge
-  merchants. Enabled only at `write_mode: full`. Always require explicit confirmation; never
-  permitted to skip the dry-run preview in a bulk call.
+  merchants, create/update/delete category, and create/update/delete transaction rules. Enabled
+  only at `write_mode: full`. Always require explicit confirmation; never permitted to skip the
+  dry-run preview in a bulk call. Rules are Tier 2 because they alter *future* categorization, not
+  just existing records.
 - **`revert_last_batch`** — walks the audit log backward to undo the most recent Tier 1 batch,
   providing an "oops" button the raw Monarch API lacks.
 
@@ -173,15 +176,28 @@ log, and keeping the human in the confirm loop are the mitigations.
 ## 8. MCP Tools
 
 **Reads / analytics:** `get_accounts`, `get_account`, `get_transactions`, `search_transactions`,
-`get_budget`, `get_cashflow`, `get_networth`, `get_holdings`, `merchant_summary`,
-`category_summary`, `monthly_spending`, `yearly_spending`, `income_report`, `subscription_report`,
-`investment_summary`, `forecast_cash`.
+`get_transaction_details`, `get_transactions_needing_review`, `get_recurring_transactions`,
+`get_transaction_splits`, `get_budget`, `get_cashflow`, `get_networth`, `get_holdings`,
+`merchant_summary`, `category_summary`, `monthly_spending`, `yearly_spending`, `income_report`,
+`subscription_report`, `investment_summary`, `forecast_cash`.
+
+**Reference reads:** `get_categories`, `get_category_groups`, `get_merchant`, `get_tags`. (Also used
+internally by the write tools to resolve names → ids.)
 
 **Cache / ops:** `refresh_cache`, `cache_status`, `health_check`.
 
-**Writes (gated by `write_mode`):** `categorize_transactions`, `set_transaction_tags`,
-`update_merchant`, `set_budget_amount` (Tier 1); `create_transaction`, `delete_transaction`,
-`delete_goal`, `merge_merchants` (Tier 2); `revert_last_batch`.
+**Writes (gated by `write_mode`):**
+
+- *Tier 1 — safe/reversible:* `categorize_transactions`, `set_transaction_tags`,
+  `update_transaction_notes`, `mark_transaction_reviewed`, `split_transaction`, `update_merchant`,
+  `set_budget_amount`.
+- *Tier 2 — destructive/irreversible:* `create_transaction`, `delete_transaction`, `delete_goal`,
+  `merge_merchants`, `create_category`, `update_category`, `delete_category`,
+  `create_transaction_rule`, `update_transaction_rule`, `delete_transaction_rule`.
+- *Undo:* `revert_last_batch`.
+
+Transaction **rules** are Tier 2 on purpose: a bad rule silently mis-categorizes *future*
+transactions, so it sits behind `write_mode: full` and never skips the dry-run preview.
 
 ## 9. Error Handling
 
