@@ -83,7 +83,7 @@ def test_cache_status_tool(tmp_path):
     assert statuses["transactions"]["count"] == 1
 
 
-def test_get_accounts_reports_expired_session(tmp_path):
+def test_get_accounts_returns_error_on_expired_session(tmp_path):
     from financial_mcp.monarch.community_adapter import SessionExpiredError
 
     class ExpiredAdapter(FakeAdapter):

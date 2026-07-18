@@ -50,7 +50,7 @@ In `config.yaml`:
 source: live
 ```
 
-### 3. Manual smoke test (once)
+### 3. Manual smoke test (once, assumes a valid session)
 ```bash
 FINANCIAL_MCP_CONFIG=config.yaml python -c "
 from financial_mcp.config import load_config

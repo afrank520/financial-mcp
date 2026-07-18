@@ -22,8 +22,8 @@ async def _validate_token(token: str) -> bool:
     try:
         await mm.get_accounts()
         return True
-    except Exception as exc:  # noqa: BLE001
-        print(f"That token did not work: {exc}", file=sys.stderr)
+    except Exception:  # noqa: BLE001
+        print("That token did not work. Check the format and try again.", file=sys.stderr)
         return False
 
 
