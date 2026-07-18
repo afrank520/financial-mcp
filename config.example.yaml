@@ -25,3 +25,9 @@ cache_ttls:
 # Offline CSV fallback (Plan 1). Point at copies of your Monarch exports.
 csv_transactions_path: null
 csv_balances_path: null
+
+# Data source: "csv" = offline Plan-1 exports | "live" = Monarch API.
+# Run `financial-mcp-login` once before using "live". If "live" is set but no
+# session is stored, the server logs a warning and falls back to CSV.
+source: csv
+keyring_service_name: financial_mcp_monarch

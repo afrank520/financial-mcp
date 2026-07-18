@@ -30,6 +30,8 @@ class Config(BaseModel):
     cache_ttls: CacheTTLs = CacheTTLs()
     csv_transactions_path: str | None = None
     csv_balances_path: str | None = None
+    source: Literal["csv", "live"] = "csv"
+    keyring_service_name: str = "financial_mcp_monarch"
 
 
 def load_config(path: str | None = None) -> Config:

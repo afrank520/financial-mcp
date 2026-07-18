@@ -36,3 +36,27 @@ def test_invalid_write_mode_rejected(tmp_path):
         assert False, "expected ValueError"
     except ValueError:
         pass
+
+
+def test_source_defaults_to_csv():
+    cfg = load_config(None)
+    assert cfg.source == "csv"
+    assert cfg.keyring_service_name == "financial_mcp_monarch"
+
+
+def test_source_live_and_service_name_override(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("source: live\nkeyring_service_name: my_service\n")
+    cfg = load_config(str(p))
+    assert cfg.source == "live"
+    assert cfg.keyring_service_name == "my_service"
+
+
+def test_invalid_source_rejected(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("source: cloud\n")
+    try:
+        load_config(str(p))
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
