@@ -8,6 +8,7 @@
 .env
 config.yaml
 keyring_fallback*
+.mm/
 
 # Python
 __pycache__/
