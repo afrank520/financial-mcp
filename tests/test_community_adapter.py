@@ -76,9 +76,11 @@ class StubClient:
         if self.fail_status in (401, 403):
             raise RuntimeError(f"HTTP {self.fail_status} Unauthorized")
         page = offset // 2  # StubClient serves 2 per page
-        return self._pages[page] if page < len(self._pages) else {
-            "allTransactions": {"totalCount": 3, "results": []}
-        }
+        return (
+            self._pages[page]
+            if page < len(self._pages)
+            else {"allTransactions": {"totalCount": 3, "results": []}}
+        )
 
 
 def _adapter(**kw):

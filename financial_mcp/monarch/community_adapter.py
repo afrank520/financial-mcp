@@ -89,7 +89,6 @@ class CommunityAdapter(MonarchAdapter):
         return [_to_account(a, as_of) for a in raw.get("accounts", [])]
 
     def get_balances(self) -> list[Balance]:
-        as_of = self._today()
         return [
             Balance(date=a.as_of, balance=a.latest_balance, account=a.name)
             for a in self.get_accounts()

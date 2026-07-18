@@ -81,3 +81,17 @@ def test_cache_status_tool(tmp_path):
     _tool(server, "get_transactions")()  # populate
     statuses = {s["data_type"]: s for s in _tool(server, "cache_status")()}
     assert statuses["transactions"]["count"] == 1
+
+
+def test_get_accounts_reports_expired_session(tmp_path):
+    from financial_mcp.monarch.community_adapter import SessionExpiredError
+
+    class ExpiredAdapter(FakeAdapter):
+        def get_accounts(self):
+            raise SessionExpiredError("expired")
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    server = build_server(DataService(ExpiredAdapter(), cache))
+    result = _tool(server, "get_accounts")()
+    assert isinstance(result, dict)
+    assert "financial-mcp-login" in result["error"]

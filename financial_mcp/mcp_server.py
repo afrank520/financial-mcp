@@ -6,6 +6,7 @@ from mcp.server.fastmcp import FastMCP
 
 from financial_mcp.analytics import spending
 from financial_mcp.data_service import DataService
+from financial_mcp.monarch.community_adapter import SessionExpiredError
 
 
 def build_server(svc: DataService) -> FastMCP:
@@ -20,9 +21,12 @@ def build_server(svc: DataService) -> FastMCP:
         return {"status": "ok", "cache_types": len(svc.cache_status())}
 
     @server.tool()
-    def get_accounts() -> list[dict]:
+    def get_accounts() -> list[dict] | dict:
         """List financial accounts with their latest known balance."""
-        return _dump(svc.accounts())
+        try:
+            return _dump(svc.accounts())
+        except SessionExpiredError as exc:
+            return {"error": f"{exc}. Re-authenticate: financial-mcp-login"}
 
     @server.tool()
     def get_transactions(limit: int = 100) -> list[dict]:

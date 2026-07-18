@@ -30,9 +30,7 @@ def build_adapter(cfg: Config) -> MonarchAdapter:
         token = auth.load_token(cfg.keyring_service_name)
         if token:
             return CommunityAdapter(token, cfg.keyring_service_name)
-        logger.warning(
-            "no Monarch session — run `financial-mcp-login`; falling back to CSV"
-        )
+        logger.warning("no Monarch session — run `financial-mcp-login`; falling back to CSV")
         return _csv_or_exit(cfg)
     return _csv_or_exit(cfg)
 
