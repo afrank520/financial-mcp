@@ -32,7 +32,7 @@ async def _login_with_password(email: str, password: str) -> str | None:
 
     mm = MonarchMoney()
     try:
-        await mm.login(email, password)
+        await mm.login(email, password, save_session=False)
     except RequireMFAException:
         code = input("MFA code: ").strip()
         await mm.multi_factor_authenticate(email, password, code)

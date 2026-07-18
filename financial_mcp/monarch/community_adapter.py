@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import datetime
 from collections.abc import Callable
 from decimal import Decimal
@@ -29,7 +30,7 @@ def _is_auth_error(exc: Exception) -> bool:
 def _to_account(d: dict, as_of: datetime.date) -> Account:
     return Account(
         name=d["displayName"],
-        latest_balance=Decimal(str(d["currentBalance"])),
+        latest_balance=Decimal(str(d.get("currentBalance") or 0)),
         as_of=as_of,
     )
 
@@ -74,6 +75,15 @@ class CommunityAdapter(MonarchAdapter):
 
     def _run(self, coro):
         try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            running = False
+        else:
+            running = True
+        try:
+            if running:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                    return ex.submit(asyncio.run, coro).result()
             return asyncio.run(coro)
         except Exception as exc:  # noqa: BLE001 — re-typed below
             if _is_auth_error(exc):
