@@ -202,3 +202,142 @@ def test_transactions_paginate_when_totalcount_absent():
         SESSION, transport=transport, today=lambda: datetime.date(2026, 2, 1), page_size=1
     )
     assert len(a.get_transactions()) == 1
+
+
+# Tests for the real _default_transport (Finding #2)
+
+
+class _MockResponse:
+    """Mock aiohttp response that acts as an async context manager."""
+
+    def __init__(self, status, text):
+        self.status = status
+        self._text = text
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    async def text(self):
+        return self._text
+
+
+class _MockSession:
+    """Mock aiohttp ClientSession that acts as an async context manager."""
+
+    def __init__(self, status, response_text):
+        self._status = status
+        self._response_text = response_text
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    def post(self, url, json=None, headers=None):
+        return _MockResponse(self._status, self._response_text)
+
+
+def test_default_transport_200_with_data(monkeypatch):
+    """HTTP 200 with data returns the data dict."""
+    import aiohttp
+
+    def mock_session(cookies):
+        body = '{"data": {"accounts": [{"displayName": "Checking"}]}}'
+        return _MockSession(200, body)
+
+    monkeypatch.setattr(aiohttp, "ClientSession", mock_session)
+
+    adapter = CommunityAdapter(SESSION, transport=None)  # Will use _default_transport
+    data = adapter._run(adapter._default_transport("GetAccounts", "query {}", {}))
+    assert data == {"accounts": [{"displayName": "Checking"}]}
+
+
+def test_default_transport_200_with_errors_raises_runtime_error(monkeypatch):
+    """HTTP 200 with errors but no data raises RuntimeError."""
+    import aiohttp
+
+    def mock_session(cookies):
+        body = '{"errors": [{"message": "Something went wrong"}]}'
+        return _MockSession(200, body)
+
+    monkeypatch.setattr(aiohttp, "ClientSession", mock_session)
+
+    adapter = CommunityAdapter(SESSION, transport=None)
+    with pytest.raises(RuntimeError, match="Monarch GraphQL error"):
+        adapter._run(adapter._default_transport("GetAccounts", "query {}", {}))
+
+
+def test_default_transport_200_non_json_raises_runtime_error(monkeypatch):
+    """HTTP 200 with non-JSON body raises RuntimeError."""
+    import aiohttp
+
+    def mock_session(cookies):
+        return _MockSession(200, "<!DOCTYPE html><html>...")
+
+    monkeypatch.setattr(aiohttp, "ClientSession", mock_session)
+
+    adapter = CommunityAdapter(SESSION, transport=None)
+    with pytest.raises(RuntimeError, match="Monarch returned non-JSON"):
+        adapter._run(adapter._default_transport("GetAccounts", "query {}", {}))
+
+
+def test_default_transport_403_shall_not_pass_raises_cloudflare_error(monkeypatch):
+    """HTTP 403 with 'Shall Not Pass' raises CloudflareBlockedError."""
+    import aiohttp
+
+    def mock_session(cookies):
+        return _MockSession(403, "You Shall Not Pass!")
+
+    monkeypatch.setattr(aiohttp, "ClientSession", mock_session)
+
+    adapter = CommunityAdapter(SESSION, transport=None)
+    with pytest.raises(CloudflareBlockedError, match="Cloudflare blocked"):
+        adapter._run(adapter._default_transport("GetAccounts", "query {}", {}))
+
+
+def test_default_transport_401_raises_session_expired_error(monkeypatch):
+    """HTTP 401 (no Shall Not Pass) raises SessionExpiredError."""
+    import aiohttp
+
+    def mock_session(cookies):
+        body = '{"detail": "Authentication credentials were not provided."}'
+        return _MockSession(401, body)
+
+    monkeypatch.setattr(aiohttp, "ClientSession", mock_session)
+
+    adapter = CommunityAdapter(SESSION, transport=None)
+    with pytest.raises(SessionExpiredError, match="session expired"):
+        adapter._run(adapter._default_transport("GetAccounts", "query {}", {}))
+
+
+def test_default_transport_403_normal_body_raises_session_expired_error(monkeypatch):
+    """HTTP 403 without Cloudflare marker raises SessionExpiredError."""
+    import aiohttp
+
+    def mock_session(cookies):
+        body = '{"detail": "Token expired"}'
+        return _MockSession(403, body)
+
+    monkeypatch.setattr(aiohttp, "ClientSession", mock_session)
+
+    adapter = CommunityAdapter(SESSION, transport=None)
+    with pytest.raises(SessionExpiredError, match="session expired"):
+        adapter._run(adapter._default_transport("GetAccounts", "query {}", {}))
+
+
+def test_default_transport_500_raises_runtime_error(monkeypatch):
+    """HTTP 500 raises RuntimeError."""
+    import aiohttp
+
+    def mock_session(cookies):
+        return _MockSession(500, "Internal Server Error")
+
+    monkeypatch.setattr(aiohttp, "ClientSession", mock_session)
+
+    adapter = CommunityAdapter(SESSION, transport=None)
+    with pytest.raises(RuntimeError, match="Monarch HTTP 500"):
+        adapter._run(adapter._default_transport("GetAccounts", "query {}", {}))
