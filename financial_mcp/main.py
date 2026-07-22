@@ -27,9 +27,9 @@ def _csv_or_exit(cfg: Config) -> MonarchAdapter:
 
 def build_adapter(cfg: Config) -> MonarchAdapter:
     if cfg.source == "live":
-        token = auth.load_token(cfg.keyring_service_name)
-        if token:
-            return CommunityAdapter(token, cfg.keyring_service_name)
+        session = auth.load_session(cfg.keyring_service_name)
+        if session:
+            return CommunityAdapter(session, cfg.keyring_service_name)
         logger.warning("no Monarch session — run `financial-mcp-login`; falling back to CSV")
         return _csv_or_exit(cfg)
     return _csv_or_exit(cfg)
