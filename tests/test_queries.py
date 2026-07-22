@@ -15,5 +15,14 @@ def test_get_transactions_query_shape():
     assert "totalCount" in q
     assert "results(offset: $offset, limit: $limit" in q
     # fields the _to_transaction mapper reads
-    for field in ("amount", "date", "plaidName", "notes", "merchant", "category", "account", "tags"):
+    for field in (
+        "amount",
+        "date",
+        "plaidName",
+        "notes",
+        "merchant",
+        "category",
+        "account",
+        "tags",
+    ):
         assert field in q
