@@ -90,8 +90,11 @@ def _login() -> None:
     blob = sys.stdin.read()
     try:
         session = parse_curl_cookies(blob)
-    except ValueError as exc:
-        raise SystemExit(f"Login failed: {exc}")
+    except ValueError:
+        raise SystemExit(
+            "Login failed: could not extract session cookies from the pasted cURL command. "
+            "Make sure you copied a request to api.monarch.com while logged in."
+        )
     if not _validate(session):
         raise SystemExit("Login failed. Try again with a fresh request.")
     auth.save_session(session["session_id"], session["csrftoken"], _service_name())
