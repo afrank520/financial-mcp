@@ -32,3 +32,6 @@ htmlcov/
 
 # uv lockfile (local resolver state)
 uv.lock
+
+# feasibility spike — local cookies, never commit
+.cookie-probe/
