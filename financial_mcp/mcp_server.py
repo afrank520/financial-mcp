@@ -6,7 +6,7 @@ from mcp.server.fastmcp import FastMCP
 
 from financial_mcp.analytics import spending
 from financial_mcp.data_service import DataService
-from financial_mcp.monarch.community_adapter import SessionExpiredError
+from financial_mcp.monarch.community_adapter import CloudflareBlockedError, SessionExpiredError
 
 
 def build_server(svc: DataService) -> FastMCP:
@@ -25,7 +25,7 @@ def build_server(svc: DataService) -> FastMCP:
         """List financial accounts with their latest known balance."""
         try:
             return _dump(svc.accounts())
-        except SessionExpiredError as exc:
+        except (SessionExpiredError, CloudflareBlockedError) as exc:
             return {"error": f"{exc}. Re-authenticate: financial-mcp-login"}
 
     @server.tool()

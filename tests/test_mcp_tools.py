@@ -95,3 +95,17 @@ def test_get_accounts_returns_error_on_expired_session(tmp_path):
     result = _tool(server, "get_accounts")()
     assert isinstance(result, dict)
     assert "financial-mcp-login" in result["error"]
+
+
+def test_get_accounts_returns_error_on_cloudflare_block(tmp_path):
+    from financial_mcp.monarch.community_adapter import CloudflareBlockedError
+
+    class BlockedAdapter(FakeAdapter):
+        def get_accounts(self):
+            raise CloudflareBlockedError("blocked")
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    server = build_server(DataService(BlockedAdapter(), cache))
+    result = _tool(server, "get_accounts")()
+    assert isinstance(result, dict)
+    assert "financial-mcp-login" in result["error"]
