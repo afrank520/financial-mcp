@@ -8,6 +8,20 @@ from financial_mcp.analytics import spending
 from financial_mcp.data_service import DataService
 from financial_mcp.monarch.community_adapter import CloudflareBlockedError, SessionExpiredError
 
+# Row-returning tools stream one MCP content block per transaction. A large
+# result exceeds MCP's 1MB per-tool-result ceiling and is hard-rejected by the
+# client, so these tools return a bounded, most-recent-first browsing view.
+# For all-time totals, use category_summary / merchant_summary (one row each).
+DEFAULT_TXN_ROWS = 100  # default page when the caller gives no limit
+MAX_TXN_ROWS = 500  # hard ceiling; caller cannot exceed this
+
+
+def _clamp_limit(limit: int | None) -> int:
+    """Clamp a caller-supplied row limit into [1, MAX_TXN_ROWS]."""
+    if limit is None:
+        return DEFAULT_TXN_ROWS
+    return max(1, min(limit, MAX_TXN_ROWS))
+
 
 def build_server(svc: DataService) -> FastMCP:
     server = FastMCP("financial-mcp")
@@ -33,10 +47,11 @@ def build_server(svc: DataService) -> FastMCP:
         return _guard(lambda: _dump(svc.accounts()))
 
     @server.tool()
-    def get_transactions(limit: int = 100) -> list[dict] | dict:
-        """Return the most recent transactions (default 100)."""
+    def get_transactions(limit: int = DEFAULT_TXN_ROWS) -> list[dict] | dict:
+        """Return the most recent transactions (default 100, max 500)."""
+        n = _clamp_limit(limit)
         return _guard(
-            lambda: _dump(sorted(svc.transactions(), key=lambda t: t.date, reverse=True)[:limit])
+            lambda: _dump(sorted(svc.transactions(), key=lambda t: t.date, reverse=True)[:n])
         )
 
     @server.tool()
@@ -45,17 +60,28 @@ def build_server(svc: DataService) -> FastMCP:
         category: str | None = None,
         min_amount: float | None = None,
         max_amount: float | None = None,
+        limit: int = DEFAULT_TXN_ROWS,
     ) -> list[dict] | dict:
-        """Search transactions by merchant/category substring and amount range."""
+        """Search transactions by merchant/category substring and amount range.
+
+        Returns the most recent matches (default 100, max 500). For all-time
+        totals across every matching transaction, use merchant_summary or
+        category_summary instead.
+        """
+        n = _clamp_limit(limit)
         return _guard(
             lambda: _dump(
-                spending.search(
-                    svc.transactions(),
-                    merchant=merchant,
-                    category=category,
-                    min_amount=None if min_amount is None else Decimal(str(min_amount)),
-                    max_amount=None if max_amount is None else Decimal(str(max_amount)),
-                )
+                sorted(
+                    spending.search(
+                        svc.transactions(),
+                        merchant=merchant,
+                        category=category,
+                        min_amount=None if min_amount is None else Decimal(str(min_amount)),
+                        max_amount=None if max_amount is None else Decimal(str(max_amount)),
+                    ),
+                    key=lambda t: t.date,
+                    reverse=True,
+                )[:n]
             )
         )
 

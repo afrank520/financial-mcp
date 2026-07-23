@@ -83,6 +83,76 @@ def test_cache_status_tool(tmp_path):
     assert statuses["transactions"]["count"] == 1
 
 
+class ManyTxnAdapter(FakeAdapter):
+    """Returns more transactions than the result-size cap allows."""
+
+    def get_transactions(self):
+        base = datetime.date(2026, 1, 1)
+        out = []
+        for i in range(1200):
+            d = base + datetime.timedelta(days=i)
+            out.append(
+                Transaction(
+                    id=Transaction.synth_id(d, "Amazon", Decimal("-5.00"), "AMZN"),
+                    date=d,
+                    merchant="Amazon",
+                    category="Shopping",
+                    account="Checking",
+                    original_statement="AMZN",
+                    notes="",
+                    amount=Decimal("-5.00"),
+                    tags=[],
+                    owner="A",
+                )
+            )
+        return out
+
+
+def _many_service(tmp_path):
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    return DataService(ManyTxnAdapter(), cache)
+
+
+def test_get_transactions_caps_at_max_rows(tmp_path):
+    from financial_mcp.mcp_server import MAX_TXN_ROWS
+
+    server = build_server(_many_service(tmp_path))
+    # An LLM asking for a huge limit must not exceed the hard ceiling.
+    txns = _tool(server, "get_transactions")(limit=100000)
+    assert len(txns) == MAX_TXN_ROWS
+
+
+def test_get_transactions_returns_most_recent_first(tmp_path):
+    server = build_server(_many_service(tmp_path))
+    txns = _tool(server, "get_transactions")(limit=3)
+    dates = [t["date"] for t in txns]
+    assert dates == sorted(dates, reverse=True)
+
+
+def test_search_transactions_default_capped(tmp_path):
+    from financial_mcp.mcp_server import DEFAULT_TXN_ROWS
+
+    server = build_server(_many_service(tmp_path))
+    # 1200 matches, but the default view must be bounded.
+    rows = _tool(server, "search_transactions")(merchant="amazon")
+    assert len(rows) == DEFAULT_TXN_ROWS
+
+
+def test_search_transactions_caps_at_max_rows(tmp_path):
+    from financial_mcp.mcp_server import MAX_TXN_ROWS
+
+    server = build_server(_many_service(tmp_path))
+    rows = _tool(server, "search_transactions")(merchant="amazon", limit=100000)
+    assert len(rows) == MAX_TXN_ROWS
+
+
+def test_search_transactions_most_recent_first(tmp_path):
+    server = build_server(_many_service(tmp_path))
+    rows = _tool(server, "search_transactions")(merchant="amazon", limit=5)
+    dates = [r["date"] for r in rows]
+    assert dates == sorted(dates, reverse=True)
+
+
 def test_get_accounts_returns_error_on_expired_session(tmp_path):
     from financial_mcp.monarch.community_adapter import SessionExpiredError
 
