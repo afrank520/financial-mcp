@@ -29,6 +29,22 @@ def build_server(svc: DataService) -> FastMCP:
     def _dump(models) -> list[dict]:
         return [m.model_dump(mode="json") for m in models]
 
+    def _envelope(data_type: str, rows: list[dict]) -> dict:
+        """Wrap tool rows with freshness metadata so Claude can reason about age.
+
+        Read freshness AFTER the rows are fetched (the fetch populates the
+        cache), so as_of reflects the data being returned.
+        """
+        f = svc.freshness(data_type)
+        age_s = f["age_seconds"]
+        return {
+            "as_of": f["as_of"],
+            "age_hours": None if age_s is None else round(age_s / 3600, 1),
+            "stale": not f["fresh"],
+            "count": len(rows),
+            "data": rows,
+        }
+
     def _guard(fn):
         """Execute fn and convert typed auth errors to friendly re-login messages."""
         try:
@@ -42,16 +58,28 @@ def build_server(svc: DataService) -> FastMCP:
         return {"status": "ok", "cache_types": len(svc.cache_status())}
 
     @server.tool()
-    def get_accounts() -> list[dict] | dict:
-        """List financial accounts with their latest known balance."""
-        return _guard(lambda: _dump(svc.accounts()))
+    def get_accounts() -> dict:
+        """List financial accounts with their latest known balance.
+
+        Returns an envelope: as_of (when the data was last synced from Monarch),
+        age_hours, stale, count, and data. If stale is true or age_hours is
+        large, offer to refresh_cache before relying on the numbers.
+        """
+        return _guard(lambda: _envelope("accounts", _dump(svc.accounts())))
 
     @server.tool()
-    def get_transactions(limit: int = DEFAULT_TXN_ROWS) -> list[dict] | dict:
-        """Return the most recent transactions (default 100, max 500)."""
+    def get_transactions(limit: int = DEFAULT_TXN_ROWS) -> dict:
+        """Return the most recent transactions (default 100, max 500).
+
+        Returns an envelope with freshness metadata (as_of, age_hours, stale)
+        alongside the data rows.
+        """
         n = _clamp_limit(limit)
         return _guard(
-            lambda: _dump(sorted(svc.transactions(), key=lambda t: t.date, reverse=True)[:n])
+            lambda: _envelope(
+                "transactions",
+                _dump(sorted(svc.transactions(), key=lambda t: t.date, reverse=True)[:n]),
+            )
         )
 
     @server.tool()
@@ -61,7 +89,7 @@ def build_server(svc: DataService) -> FastMCP:
         min_amount: float | None = None,
         max_amount: float | None = None,
         limit: int = DEFAULT_TXN_ROWS,
-    ) -> list[dict] | dict:
+    ) -> dict:
         """Search transactions by merchant/category substring and amount range.
 
         Returns the most recent matches (default 100, max 500). For all-time
@@ -70,44 +98,80 @@ def build_server(svc: DataService) -> FastMCP:
         """
         n = _clamp_limit(limit)
         return _guard(
-            lambda: _dump(
-                sorted(
-                    spending.search(
-                        svc.transactions(),
-                        merchant=merchant,
-                        category=category,
-                        min_amount=None if min_amount is None else Decimal(str(min_amount)),
-                        max_amount=None if max_amount is None else Decimal(str(max_amount)),
-                    ),
-                    key=lambda t: t.date,
-                    reverse=True,
-                )[:n]
+            lambda: _envelope(
+                "transactions",
+                _dump(
+                    sorted(
+                        spending.search(
+                            svc.transactions(),
+                            merchant=merchant,
+                            category=category,
+                            min_amount=None if min_amount is None else Decimal(str(min_amount)),
+                            max_amount=None if max_amount is None else Decimal(str(max_amount)),
+                        ),
+                        key=lambda t: t.date,
+                        reverse=True,
+                    )[:n]
+                ),
             )
         )
 
     @server.tool()
-    def category_summary() -> list[dict] | dict:
-        """Net total and count per category, biggest net spend first."""
-        return _guard(lambda: _jsonify(spending.category_summary(svc.transactions())))
+    def category_summary() -> dict:
+        """Net total and count per category, biggest net spend first.
+
+        Returns an envelope with freshness metadata (as_of, age_hours, stale).
+        This is the accurate all-time total across every transaction.
+        """
+        return _guard(
+            lambda: _envelope(
+                "transactions", _jsonify(spending.category_summary(svc.transactions()))
+            )
+        )
 
     @server.tool()
-    def merchant_summary() -> list[dict] | dict:
-        """Net total and count per merchant, biggest net spend first."""
-        return _guard(lambda: _jsonify(spending.merchant_summary(svc.transactions())))
+    def merchant_summary() -> dict:
+        """Net total and count per merchant, biggest net spend first.
+
+        Returns an envelope with freshness metadata (as_of, age_hours, stale).
+        This is the accurate all-time total across every transaction.
+        """
+        return _guard(
+            lambda: _envelope(
+                "transactions", _jsonify(spending.merchant_summary(svc.transactions()))
+            )
+        )
 
     @server.tool()
-    def monthly_spending(year: int) -> list[dict] | dict:
-        """Monthly total spend (negative amounts) for the given year."""
-        return _guard(lambda: _jsonify(spending.monthly_spending(svc.transactions(), year)))
+    def monthly_spending(year: int) -> dict:
+        """Monthly total spend (negative amounts) for the given year.
+
+        Returns an envelope with freshness metadata (as_of, age_hours, stale).
+        """
+        return _guard(
+            lambda: _envelope(
+                "transactions", _jsonify(spending.monthly_spending(svc.transactions(), year))
+            )
+        )
 
     @server.tool()
     def cache_status() -> list[dict]:
-        """Per-type cache freshness, age, source, and record count."""
+        """Per-type cache freshness, age, source, and record count.
+
+        Use this to check how current the data is before answering a
+        freshness-sensitive question.
+        """
         return svc.cache_status()
 
     @server.tool()
     def refresh_cache(data_type: str | None = None) -> dict:
-        """Force a refresh of one data type (or all if omitted)."""
+        """Force a fresh pull from Monarch for one data type (or all if omitted).
+
+        Call this when the user says they just changed something in Monarch
+        (recategorized transactions, added or edited an account, updated a
+        budget), or explicitly wants the very latest data instead of the cached
+        copy. data_type is one of: transactions, balances, accounts.
+        """
         svc.refresh(data_type)
         return {"refreshed": data_type or "all"}
 

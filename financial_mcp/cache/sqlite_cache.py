@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import json
 import sqlite3
 import time
@@ -8,6 +9,11 @@ from collections.abc import Callable
 from financial_mcp.config import CacheTTLs
 
 SCHEMA_VERSION = 1
+
+# Always-live (TTL 0) types are refetched every call, so a successful fetch
+# leaves age ~= 0. If age exceeds this grace window, the data is NOT live — it
+# is a stale fallback served after a failed fetch — and must report as stale.
+ALWAYS_LIVE_GRACE_SECONDS = 300
 
 
 class SqliteCache:
@@ -72,6 +78,33 @@ class SqliteCache:
         if age is None:
             return False
         return age < self._ttl_for(data_type)
+
+    def freshness(self, data_type: str) -> dict:
+        """Freshness metadata for one data type, for surfacing to the caller.
+
+        Returns as_of (ISO-8601 UTC of last refresh, or None if never stored),
+        age_seconds, and fresh (within TTL).
+
+        A 0-TTL type is "always-live" — DataService refetches it on every call,
+        so a successful fetch leaves it fresh. But DataService serves stale
+        cache when a fetch fails, so we only call an always-live type fresh when
+        its age is within a short grace window; an old always-live entry is a
+        failed-fetch fallback and is honestly reported as stale.
+        """
+        lr = self._last_refresh(data_type)
+        as_of = (
+            None
+            if lr is None
+            else datetime.datetime.fromtimestamp(lr, tz=datetime.timezone.utc).isoformat()
+        )
+        age = self.age_seconds(data_type)
+        always_live = self._ttl_for(data_type) == 0 and lr is not None
+        fresh = (age < ALWAYS_LIVE_GRACE_SECONDS) if always_live else self.is_fresh(data_type)
+        return {
+            "as_of": as_of,
+            "age_seconds": age,
+            "fresh": fresh,
+        }
 
     def invalidate(self, data_type: str) -> None:
         self._conn.execute(

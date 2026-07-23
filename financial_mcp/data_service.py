@@ -57,5 +57,9 @@ class DataService:
             elif t == "accounts":
                 self.accounts()
 
+    def freshness(self, data_type: str) -> dict:
+        """Freshness metadata (as_of, age_seconds, fresh) for one data type."""
+        return self._cache.freshness(data_type)
+
     def cache_status(self) -> list[dict]:
         return self._cache.status()

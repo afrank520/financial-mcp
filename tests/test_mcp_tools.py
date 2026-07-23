@@ -56,20 +56,34 @@ def test_health_check(tmp_path):
 
 def test_get_accounts_tool(tmp_path):
     server = build_server(_service(tmp_path))
-    accts = _tool(server, "get_accounts")()
+    result = _tool(server, "get_accounts")()
+    accts = result["data"]
     assert accts[0]["name"] == "Checking"
     assert accts[0]["latest_balance"] == "100"
 
 
+def test_get_accounts_envelope_carries_freshness(tmp_path):
+    server = build_server(_service(tmp_path))
+    result = _tool(server, "get_accounts")()
+    # Envelope keys Claude uses to reason about staleness.
+    assert set(result) >= {"as_of", "age_hours", "stale", "count", "data"}
+    assert result["count"] == 1
+    assert result["stale"] is False  # just fetched
+    assert isinstance(result["as_of"], str)
+
+
 def test_category_summary_tool(tmp_path):
     server = build_server(_service(tmp_path))
-    rows = _tool(server, "category_summary")()
-    assert rows[0]["category"] == "Groceries"
+    result = _tool(server, "category_summary")()
+    assert result["data"][0]["category"] == "Groceries"
+    assert "as_of" in result
 
 
 def test_get_transactions_limit(tmp_path):
     server = build_server(_service(tmp_path))
-    txns = _tool(server, "get_transactions")(limit=1)
+    result = _tool(server, "get_transactions")(limit=1)
+    txns = result["data"]
+    assert result["count"] == 1
     assert len(txns) == 1
     assert txns[0]["merchant"] == "Costco"
     # Money must be serialized as string, not float
@@ -118,14 +132,14 @@ def test_get_transactions_caps_at_max_rows(tmp_path):
 
     server = build_server(_many_service(tmp_path))
     # An LLM asking for a huge limit must not exceed the hard ceiling.
-    txns = _tool(server, "get_transactions")(limit=100000)
-    assert len(txns) == MAX_TXN_ROWS
+    result = _tool(server, "get_transactions")(limit=100000)
+    assert len(result["data"]) == MAX_TXN_ROWS
 
 
 def test_get_transactions_returns_most_recent_first(tmp_path):
     server = build_server(_many_service(tmp_path))
-    txns = _tool(server, "get_transactions")(limit=3)
-    dates = [t["date"] for t in txns]
+    result = _tool(server, "get_transactions")(limit=3)
+    dates = [t["date"] for t in result["data"]]
     assert dates == sorted(dates, reverse=True)
 
 
@@ -134,22 +148,22 @@ def test_search_transactions_default_capped(tmp_path):
 
     server = build_server(_many_service(tmp_path))
     # 1200 matches, but the default view must be bounded.
-    rows = _tool(server, "search_transactions")(merchant="amazon")
-    assert len(rows) == DEFAULT_TXN_ROWS
+    result = _tool(server, "search_transactions")(merchant="amazon")
+    assert len(result["data"]) == DEFAULT_TXN_ROWS
 
 
 def test_search_transactions_caps_at_max_rows(tmp_path):
     from financial_mcp.mcp_server import MAX_TXN_ROWS
 
     server = build_server(_many_service(tmp_path))
-    rows = _tool(server, "search_transactions")(merchant="amazon", limit=100000)
-    assert len(rows) == MAX_TXN_ROWS
+    result = _tool(server, "search_transactions")(merchant="amazon", limit=100000)
+    assert len(result["data"]) == MAX_TXN_ROWS
 
 
 def test_search_transactions_most_recent_first(tmp_path):
     server = build_server(_many_service(tmp_path))
-    rows = _tool(server, "search_transactions")(merchant="amazon", limit=5)
-    dates = [r["date"] for r in rows]
+    result = _tool(server, "search_transactions")(merchant="amazon", limit=5)
+    dates = [r["date"] for r in result["data"]]
     assert dates == sorted(dates, reverse=True)
 
 

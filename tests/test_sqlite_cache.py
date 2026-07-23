@@ -57,6 +57,46 @@ def test_status_lists_types(tmp_path):
     assert rows["transactions"]["fresh"] is True
 
 
+def test_freshness_reports_as_of_and_age(tmp_path):
+    clock = FakeClock(t=1000.0)
+    c = _cache(tmp_path, clock)
+    c.store("transactions", [{"id": "1"}], source="csv")
+    clock.t = 1050.0
+    f = c.freshness("transactions")
+    assert round(f["age_seconds"]) == 50
+    assert f["fresh"] is True
+    # as_of is an ISO-8601 UTC string reflecting the store time (t=1000.0)
+    assert isinstance(f["as_of"], str)
+    assert f["as_of"].endswith("Z") or "+00:00" in f["as_of"]
+
+
+def test_freshness_always_live_fresh_when_recent(tmp_path):
+    # accounts has no TTL field -> _ttl_for returns 0 -> always-live.
+    clock = FakeClock(t=1000.0)
+    c = _cache(tmp_path, clock)
+    c.store("accounts", [{"name": "Checking"}], source="csv")
+    clock.t = 1010.0  # just pulled, within grace window
+    assert c.freshness("accounts")["fresh"] is True
+
+
+def test_freshness_always_live_stale_when_old(tmp_path):
+    # An old always-live entry means DataService served a failed-fetch fallback:
+    # it must honestly report stale, not pretend the data is live.
+    clock = FakeClock(t=1000.0)
+    c = _cache(tmp_path, clock)
+    c.store("accounts", [{"name": "Checking"}], source="csv")
+    clock.t = 1000.0 + 3600  # 1h old -> beyond the 5min grace window
+    assert c.freshness("accounts")["fresh"] is False
+
+
+def test_freshness_none_when_never_stored(tmp_path):
+    c = _cache(tmp_path, FakeClock())
+    f = c.freshness("transactions")
+    assert f["as_of"] is None
+    assert f["age_seconds"] is None
+    assert f["fresh"] is False
+
+
 def test_persists_across_instances(tmp_path):
     clock = FakeClock()
     _cache(tmp_path, clock).store("balances", [{"account": "Checking"}], source="csv")
