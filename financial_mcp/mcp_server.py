@@ -6,7 +6,7 @@ from mcp.server.fastmcp import FastMCP
 
 from financial_mcp.analytics import spending
 from financial_mcp.data_service import DataService
-from financial_mcp.monarch.community_adapter import SessionExpiredError
+from financial_mcp.monarch.community_adapter import CloudflareBlockedError, SessionExpiredError
 
 
 def build_server(svc: DataService) -> FastMCP:
@@ -14,6 +14,13 @@ def build_server(svc: DataService) -> FastMCP:
 
     def _dump(models) -> list[dict]:
         return [m.model_dump(mode="json") for m in models]
+
+    def _guard(fn):
+        """Execute fn and convert typed auth errors to friendly re-login messages."""
+        try:
+            return fn()
+        except (SessionExpiredError, CloudflareBlockedError) as exc:
+            return {"error": f"{exc}. Re-authenticate: financial-mcp-login"}
 
     @server.tool()
     def health_check() -> dict:
@@ -23,16 +30,14 @@ def build_server(svc: DataService) -> FastMCP:
     @server.tool()
     def get_accounts() -> list[dict] | dict:
         """List financial accounts with their latest known balance."""
-        try:
-            return _dump(svc.accounts())
-        except SessionExpiredError as exc:
-            return {"error": f"{exc}. Re-authenticate: financial-mcp-login"}
+        return _guard(lambda: _dump(svc.accounts()))
 
     @server.tool()
-    def get_transactions(limit: int = 100) -> list[dict]:
+    def get_transactions(limit: int = 100) -> list[dict] | dict:
         """Return the most recent transactions (default 100)."""
-        txns = sorted(svc.transactions(), key=lambda t: t.date, reverse=True)
-        return _dump(txns[:limit])
+        return _guard(
+            lambda: _dump(sorted(svc.transactions(), key=lambda t: t.date, reverse=True)[:limit])
+        )
 
     @server.tool()
     def search_transactions(
@@ -40,31 +45,34 @@ def build_server(svc: DataService) -> FastMCP:
         category: str | None = None,
         min_amount: float | None = None,
         max_amount: float | None = None,
-    ) -> list[dict]:
+    ) -> list[dict] | dict:
         """Search transactions by merchant/category substring and amount range."""
-        results = spending.search(
-            svc.transactions(),
-            merchant=merchant,
-            category=category,
-            min_amount=None if min_amount is None else Decimal(str(min_amount)),
-            max_amount=None if max_amount is None else Decimal(str(max_amount)),
+        return _guard(
+            lambda: _dump(
+                spending.search(
+                    svc.transactions(),
+                    merchant=merchant,
+                    category=category,
+                    min_amount=None if min_amount is None else Decimal(str(min_amount)),
+                    max_amount=None if max_amount is None else Decimal(str(max_amount)),
+                )
+            )
         )
-        return _dump(results)
 
     @server.tool()
-    def category_summary() -> list[dict]:
+    def category_summary() -> list[dict] | dict:
         """Net total and count per category, biggest net spend first."""
-        return _jsonify(spending.category_summary(svc.transactions()))
+        return _guard(lambda: _jsonify(spending.category_summary(svc.transactions())))
 
     @server.tool()
-    def merchant_summary() -> list[dict]:
+    def merchant_summary() -> list[dict] | dict:
         """Net total and count per merchant, biggest net spend first."""
-        return _jsonify(spending.merchant_summary(svc.transactions()))
+        return _guard(lambda: _jsonify(spending.merchant_summary(svc.transactions())))
 
     @server.tool()
-    def monthly_spending(year: int) -> list[dict]:
+    def monthly_spending(year: int) -> list[dict] | dict:
         """Monthly total spend (negative amounts) for the given year."""
-        return _jsonify(spending.monthly_spending(svc.transactions(), year))
+        return _guard(lambda: _jsonify(spending.monthly_spending(svc.transactions(), year)))
 
     @server.tool()
     def cache_status() -> list[dict]:
