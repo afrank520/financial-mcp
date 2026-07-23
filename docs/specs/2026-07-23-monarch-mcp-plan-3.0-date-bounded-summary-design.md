@@ -104,6 +104,31 @@ A world-class fee-only fiduciary reasons across four dimensions and asks questio
 
 **Design implication carried forward:** the P1 "derived ratio" tools (savings rate, runway, fixed-vs-discretionary) should each be a **server-computed number**, not raw data for Claude to combine — same principle as this plan. `date_range_summary` is the reusable window primitive most of them build on.
 
+### 3.1 Validation against a real worked example — the TeamFrank 12-Month Plan
+
+We have a real artifact of "great": `TeamFrank_12Month_Plan_v3a.pdf` (July 2026, built with Claude + short-lived Monarch MCP + curated CSV data). Decomposing what that plan actually *needed* from data confirms this roadmap and adds one structural insight.
+
+**Data lenses the plan leaned on (all map to have-now or Plan 3):**
+
+| Plan mechanic | Data lens required | Status |
+|---|---|---|
+| HELOC balance & glide path (~$224.6K → ~$202K) | account balance + **balance history / net-worth trend** | accounts ✅ / trend = P2 |
+| Weekly spending band ($1,500–2,500 normal) | **spend aggregated by week** | **← this plan's primitive, repeated weekly** |
+| "Surprise > $5K = a decision" tripwire | **large-transaction detection over a window** | search + amount filter (small Plan 3 add) |
+| "Checking < $6K = pause" tripwire | current balance (always-live) | accounts ✅ |
+| Monthly scorecard, red/green months | **monthly net cashflow (income − expense)** | `monthly_spending` partial / cashflow = P1 |
+| Reimbursement offset ($981.19 → groceries) | category spend including credits | category_summary ✅ (date-bounded via this plan) |
+| "Every dollar off-glide is named" | variance = actual vs. expected band (derived) | P1 |
+
+The weekly band and monthly scorecard — the heartbeat of that plan — are both just `date_range_summary` applied to a window. Building it first is correct.
+
+**Structural insight — two kinds of "at the ready":** the plan's power came only partly from Monarch data. The *strategy* — five payroll levers, the refinance play, the house-rule tripwires, the glide-path targets, and the framing "transactions are noise; checkpoints are signal" — is **plan CONTEXT that does not exist in Monarch**. It lived in the document and the conversation, and was lost when the chat ended. For Claude Desktop to sustain this level of guidance, it needs BOTH:
+
+1. **Financial DATA** — balances/transactions/spending → served by this MCP (the roadmap above).
+2. **Plan CONTEXT** — rules, levers, targets, checkpoints → NOT in Monarch.
+
+**Decision on context home (user, 2026-07-23):** *Now* — keep the TeamFrank plan + house rules + glide targets in the Claude Desktop **Project knowledge** (uploaded doc / custom instructions) so every chat sees them, zero code. *Later (Plan 3+)* — add an MCP **`financial_context` resource** so rules/levers/targets/checkpoints live alongside the data and travel to any client via the server. Deferred, not built here; recorded so it isn't lost.
+
 ---
 
 ## 4. Known Boundary — transfers & excluded transactions
