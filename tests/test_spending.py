@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from financial_mcp.analytics.spending import (
     category_summary,
+    date_range_summary,
     merchant_summary,
     monthly_spending,
     search,
@@ -59,3 +60,94 @@ def test_search_filters():
     assert len(search(TXNS, merchant="cost")) == 2
     assert len(search(TXNS, category="income")) == 1
     assert len(search(TXNS, min_amount=Decimal("0"))) == 1  # only paycheck >= 0
+
+
+# --- Amazon Jul 19-22 2026 accuracy fixture (ground truth: Monarch UI) ---
+# 21 charges + 3 refunds = 24 txns; gross 784.65, refunds 58.86, net 725.79.
+AMAZON_WINDOW = [
+    # July 19 — 3 charges
+    _txn("Amazon", "Shopping", "-8.22", month=7, day=19),
+    _txn("Amazon", "Shopping", "-14.11", month=7, day=19),
+    _txn("Amazon", "Shopping", "-8.58", month=7, day=19),
+    # July 20 — 5 charges
+    _txn("Amazon", "Shopping", "-190.58", month=7, day=20),
+    _txn("Amazon", "Shopping", "-24.99", month=7, day=20),
+    _txn("Amazon", "Shopping", "-20.76", month=7, day=20),
+    _txn("Amazon", "Shopping", "-132.58", month=7, day=20),
+    _txn("Amazon", "Shopping", "-51.57", month=7, day=20),
+    # July 21 — 10 charges
+    _txn("Amazon", "Shopping", "-23.55", month=7, day=21),
+    _txn("Amazon", "Shopping", "-21.85", month=7, day=21),
+    _txn("Amazon", "Shopping", "-17.02", month=7, day=21),
+    _txn("Amazon", "Shopping", "-29.60", month=7, day=21),
+    _txn("Amazon", "Shopping", "-26.18", month=7, day=21),
+    _txn("Amazon", "Shopping", "-20.94", month=7, day=21),
+    _txn("Amazon", "Shopping", "-20.93", month=7, day=21),
+    _txn("Amazon", "Shopping", "-19.87", month=7, day=21),
+    _txn("Amazon", "Shopping", "-18.84", month=7, day=21),
+    _txn("Amazon", "Shopping", "-23.56", month=7, day=21),
+    # July 21 — 3 refunds
+    _txn("Amazon", "Shopping", "14.11", month=7, day=21),
+    _txn("Amazon", "Shopping", "14.90", month=7, day=21),
+    _txn("Amazon", "Shopping", "29.85", month=7, day=21),
+    # July 22 — 3 charges
+    _txn("Amazon", "Shopping", "-20.28", month=7, day=22),
+    _txn("Amazon", "Shopping", "-14.65", month=7, day=22),
+    _txn("Amazon", "Shopping", "-75.99", month=7, day=22),
+]
+
+# Noise that must be excluded by the date window or the merchant filter.
+NOISE = [
+    _txn("Costco", "Groceries", "-50.00", month=7, day=20),  # in window, wrong merchant
+    _txn("Amazon", "Shopping", "-999.00", month=7, day=18),  # right merchant, before window
+    _txn("Amazon", "Shopping", "-999.00", month=7, day=23),  # right merchant, after window
+]
+
+JUL19 = datetime.date(2026, 7, 19)
+JUL22 = datetime.date(2026, 7, 22)
+
+
+def test_date_range_summary_matches_monarch_to_the_penny():
+    # Headline Goal #4 accuracy test — must equal the Monarch UI numbers.
+    s = date_range_summary(AMAZON_WINDOW + NOISE, JUL19, JUL22, merchant="amazon")
+    assert s["total"] == Decimal("725.79")  # matches Monarch "Total spending"
+    assert s["count"] == 24  # matches Monarch txn count
+    assert s["gross_charges"] == Decimal("784.65")
+    assert s["refunds"] == Decimal("58.86")
+    assert s["charge_count"] == 21
+    assert s["refund_count"] == 3
+
+
+def test_date_range_summary_inclusive_boundaries():
+    # A txn exactly on start and one exactly on end are included; neighbors excluded.
+    txns = [
+        _txn("Amazon", "Shopping", "-10.00", month=7, day=18),  # day before start
+        _txn("Amazon", "Shopping", "-1.00", month=7, day=19),  # on start
+        _txn("Amazon", "Shopping", "-2.00", month=7, day=22),  # on end
+        _txn("Amazon", "Shopping", "-10.00", month=7, day=23),  # day after end
+    ]
+    s = date_range_summary(txns, JUL19, JUL22)
+    assert s["count"] == 2
+    assert s["total"] == Decimal("3.00")
+
+
+def test_date_range_summary_category_filter():
+    txns = [
+        _txn("Store A", "Groceries", "-40.00", month=7, day=20),
+        _txn("Store B", "Shopping", "-60.00", month=7, day=20),
+    ]
+    s = date_range_summary(txns, JUL19, JUL22, category="grocer")
+    assert s["count"] == 1
+    assert s["total"] == Decimal("40.00")
+
+
+def test_date_range_summary_empty_window_is_zeros():
+    s = date_range_summary(AMAZON_WINDOW, datetime.date(2026, 1, 1), datetime.date(2026, 1, 2))
+    assert s == {
+        "total": Decimal("0"),
+        "gross_charges": Decimal("0"),
+        "refunds": Decimal("0"),
+        "count": 0,
+        "charge_count": 0,
+        "refund_count": 0,
+    }
