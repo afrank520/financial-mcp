@@ -70,9 +70,14 @@ def date_range_summary(
     Reuses search() for merchant/category filtering, then computes exact
     Decimal totals so callers never sum rows by hand.
 
-    total is a POSITIVE net-spend figure (gross_charges - refunds), matching
-    Monarch's "Total spending" display. Sign convention: negative amount =
-    charge, positive = refund.
+    total is net spend (gross_charges - refunds), sign-flipped so ordinary
+    spending is positive, matching Monarch's "Total spending" display. When
+    refunds exceed charges in the window, total can be negative. Sign convention:
+    negative amount = charge, positive = refund.
+
+    count is the total number of matching transactions. Because transactions with
+    amount exactly Decimal("0.00") are neither charges nor refunds, charge_count +
+    refund_count may be less than count when zero-amount rows exist.
     """
     in_window = [t for t in txns if start <= t.date <= end]
     filtered = search(in_window, merchant=merchant, category=category)

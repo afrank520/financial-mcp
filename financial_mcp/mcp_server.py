@@ -170,10 +170,12 @@ def build_server(svc: DataService) -> FastMCP:
         question instead of summing search_transactions rows yourself. Dates are
         inclusive on both ends. Optionally filter by merchant/category substring.
 
-        Returns an envelope whose data has: total (net spend, positive, matches
-        Monarch's "Total spending"), gross_charges (excludes refunds), refunds,
-        count, charge_count, refund_count. Note: an UNFILTERED window may include
-        internal transfers; a merchant/category filter matches Monarch exactly.
+        Returns an envelope whose data has: total (net spend, sign-flipped so
+        ordinary spending is positive; can be negative when refunds exceed charges),
+        gross_charges (excludes refunds), refunds, count, charge_count, refund_count.
+        Note: charge_count + refund_count may be less than count when zero-amount
+        transactions exist. An UNFILTERED window may include internal transfers; a
+        merchant/category filter matches Monarch exactly.
         """
         try:
             start = datetime.date.fromisoformat(start_date)

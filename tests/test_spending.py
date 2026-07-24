@@ -151,3 +151,20 @@ def test_date_range_summary_empty_window_is_zeros():
         "charge_count": 0,
         "refund_count": 0,
     }
+
+
+def test_date_range_summary_zero_amount_row_is_neither_charge_nor_refund():
+    # Regression test for Finding 1: zero-amount txns count in total but not charge/refund split.
+    txns = [
+        _txn("Store A", "Shopping", "-10.00", month=7, day=20),  # charge
+        _txn("Store B", "Shopping", "4.00", month=7, day=20),  # refund
+        _txn("Store C", "Shopping", "0.00", month=7, day=20),  # zero — neither charge nor refund
+    ]
+    s = date_range_summary(txns, JUL19, JUL22)
+    assert s["count"] == 3  # all three in window
+    assert s["charge_count"] == 1
+    assert s["refund_count"] == 1
+    # The zero row contributes nothing to the money math:
+    assert s["gross_charges"] == Decimal("10.00")
+    assert s["refunds"] == Decimal("4.00")
+    assert s["total"] == Decimal("6.00")  # 10.00 - 4.00
