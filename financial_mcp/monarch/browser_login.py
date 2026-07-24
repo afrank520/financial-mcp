@@ -5,6 +5,11 @@ import time
 _WANTED = ("session_id", "csrftoken")
 
 MONARCH_LOGIN_URL = "https://app.monarch.com/login"
+# session_id and csrftoken are scoped to different Monarch domains
+# (session_id → .api.monarch.com, csrftoken → .monarch.com). The cookie read
+# must cover BOTH, or the poll never sees session_id and loops until timeout.
+# Kept Monarch-only (no Google/other SSO domains) to preserve defense-in-depth.
+_COOKIE_DOMAINS = ("https://app.monarch.com", "https://api.monarch.com")
 DEFAULT_TIMEOUT_SECONDS = 180
 _POLL_INTERVAL_SECONDS = 1.0
 
@@ -63,7 +68,7 @@ def capture_session_via_browser(
                 deadline = time.monotonic() + timeout_seconds
                 while time.monotonic() < deadline:
                     try:
-                        return extract_wanted_cookies(context.cookies(monarch_url))
+                        return extract_wanted_cookies(context.cookies(list(_COOKIE_DOMAINS)))
                     except ValueError:
                         time.sleep(_POLL_INTERVAL_SECONDS)
                 raise BrowserLoginError("timed out waiting for Monarch sign-in")

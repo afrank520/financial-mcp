@@ -100,6 +100,75 @@ def test_capture_timeout_path_raises_and_closes_context(monkeypatch):
     assert fake_ctx_holder["ctx"].closed, "context.close() was not called in finally block"
 
 
+def test_capture_reads_cookies_split_across_monarch_domains(monkeypatch):
+    """Regression (live 2026-07-24): session_id is scoped to .api.monarch.com
+    and csrftoken to .monarch.com. capture_session_via_browser must query BOTH
+    Monarch domains — querying only app.monarch.com never sees session_id, so
+    the poll loops forever despite a fully authenticated browser."""
+    from financial_mcp.monarch import browser_login
+
+    # Advancing clock so the BUGGY code (never finds session_id) times out and
+    # FAILS cleanly instead of hanging; the FIXED code returns on the first poll.
+    clock = {"t": 0.0}
+
+    def _advancing_monotonic():
+        clock["t"] += 0.5
+        return clock["t"]
+
+    monkeypatch.setattr("time.monotonic", _advancing_monotonic)
+    monkeypatch.setattr("time.sleep", lambda _: None)
+
+    fake_ctx_holder = {}
+
+    class FakeContext:
+        def __init__(self):
+            self.closed = False
+            self.pages = []
+            fake_ctx_holder["ctx"] = self
+
+        def new_page(self):
+            return FakePage()
+
+        def cookies(self, urls):
+            # Simulate Playwright's real domain-scoped filtering:
+            # csrftoken (.monarch.com) matches any Monarch URL; session_id
+            # (.api.monarch.com) is returned ONLY when the api domain is queried.
+            url_list = urls if isinstance(urls, (list, tuple)) else [urls]
+            joined = " ".join(url_list)
+            out = [{"name": "csrftoken", "value": "CSRF_FAKE_456"}]
+            if "api.monarch.com" in joined:
+                out.append({"name": "session_id", "value": "SID_FAKE_123"})
+            return out
+
+        def close(self):
+            self.closed = True
+
+    class FakePage:
+        def goto(self, url):
+            pass
+
+    class FakeChromium:
+        def launch_persistent_context(self, profile_dir, **kwargs):
+            return FakeContext()
+
+    class FakePlaywright:
+        def __init__(self):
+            self.chromium = FakeChromium()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: FakePlaywright())
+
+    result = browser_login.capture_session_via_browser(profile_dir="/tmp/fake", timeout_seconds=1)
+
+    assert result == {"session_id": "SID_FAKE_123", "csrftoken": "CSRF_FAKE_456"}
+    assert fake_ctx_holder["ctx"].closed, "context.close() was not called after success"
+
+
 def test_capture_success_returns_cookies_and_closes_context(monkeypatch):
     """When cookies are present on first poll, capture returns them
     AND still closes the context."""
