@@ -112,3 +112,37 @@ def test_browser_login_returns_none_on_error(monkeypatch):
     monkeypatch.setattr("financial_mcp.monarch.browser_login.capture_session_via_browser", raiser)
 
     assert cli._browser_login() is None
+
+
+def test_browser_login_passes_timeout_env_var(monkeypatch):
+    """FINANCIAL_MCP_LOGIN_TIMEOUT overrides the browser-login timeout so a
+    cold first-time sign-in (email+password+MFA) isn't rushed."""
+    captured = {}
+
+    def spy(**kwargs):
+        captured.update(kwargs)
+        return {"session_id": "S", "csrftoken": "C"}
+
+    monkeypatch.setattr("financial_mcp.monarch.browser_login.capture_session_via_browser", spy)
+    monkeypatch.setenv("FINANCIAL_MCP_LOGIN_TIMEOUT", "300")
+
+    cli._browser_login()
+
+    assert captured["timeout_seconds"] == 300
+
+
+def test_browser_login_ignores_invalid_timeout_env(monkeypatch):
+    """A non-integer timeout env value is ignored (no timeout_seconds passed,
+    so capture_session_via_browser uses its default)."""
+    captured = {}
+
+    def spy(**kwargs):
+        captured.update(kwargs)
+        return {"session_id": "S", "csrftoken": "C"}
+
+    monkeypatch.setattr("financial_mcp.monarch.browser_login.capture_session_via_browser", spy)
+    monkeypatch.setenv("FINANCIAL_MCP_LOGIN_TIMEOUT", "not-a-number")
+
+    cli._browser_login()
+
+    assert "timeout_seconds" not in captured
