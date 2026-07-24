@@ -42,10 +42,12 @@ def capture_session_via_browser(
     """Open a persistent-context Chromium, let the user sign in to Monarch,
     and return {"session_id", "csrftoken"} once both cookies are present.
 
-    Raises BrowserLoginError if Playwright is unavailable, the browser
-    cannot launch, or the sign-in is not completed before timeout. The
-    persistent context (profile_dir) lets the browser session persist
-    between logins, which also mitigates Google's automation checks.
+    This function returns as soon as the cookies appear in the browser;
+    validating the session against a live Monarch call is the caller's
+    responsibility. Raises BrowserLoginError if Playwright is unavailable,
+    the browser cannot launch, or the sign-in is not completed before
+    timeout. The persistent context (profile_dir) lets the browser session
+    persist between logins, which also mitigates Google's automation checks.
     """
     try:
         from playwright.sync_api import sync_playwright
@@ -61,7 +63,7 @@ def capture_session_via_browser(
                 deadline = time.monotonic() + timeout_seconds
                 while time.monotonic() < deadline:
                     try:
-                        return extract_wanted_cookies(context.cookies())
+                        return extract_wanted_cookies(context.cookies(monarch_url))
                     except ValueError:
                         time.sleep(_POLL_INTERVAL_SECONDS)
                 raise BrowserLoginError("timed out waiting for Monarch sign-in")
