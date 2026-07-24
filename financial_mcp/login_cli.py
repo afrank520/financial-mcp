@@ -113,8 +113,17 @@ def _browser_login() -> dict | None:
         "Opening a browser for Monarch sign-in — complete Google sign-in in "
         "the window that appears."
     )
+    kwargs = {"profile_dir": profile_dir}
+    # Optional override for a cold first-time sign-in (email+password+MFA) that
+    # needs longer than the default 180s. Ignored if unset or non-integer.
+    raw_timeout = os.environ.get("FINANCIAL_MCP_LOGIN_TIMEOUT")
+    if raw_timeout:
+        try:
+            kwargs["timeout_seconds"] = int(raw_timeout)
+        except ValueError:
+            pass
     try:
-        return capture_session_via_browser(profile_dir=profile_dir)
+        return capture_session_via_browser(**kwargs)
     except BrowserLoginError as exc:
         print(
             f"Browser login unavailable ({exc}). Falling back to manual login.",
