@@ -10,6 +10,9 @@ config.yaml
 keyring_fallback*
 .mm/
 
+# Playwright persistent browser profile — local, never commit
+.pw-profile/
+
 # Python
 __pycache__/
 *.py[cod]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shlex
 import sys
+from pathlib import Path
 
 from financial_mcp.config import load_config
 from financial_mcp.monarch import auth
@@ -78,9 +79,10 @@ def _validate(session: dict) -> bool:
         return False
 
 
-def _login() -> None:
+def _curl_login() -> dict:
+    """Manual fallback: read a 'Copy as cURL' blob from stdin and parse it."""
     print(
-        "Monarch login.\n"
+        "Monarch manual login.\n"
         "1. In your browser, open Monarch and log in.\n"
         "2. DevTools -> Network tab, filter 'graphql', click a POST request to "
         "api.monarch.com.\n"
@@ -89,16 +91,48 @@ def _login() -> None:
     )
     blob = sys.stdin.read()
     try:
-        session = parse_curl_cookies(blob)
+        return parse_curl_cookies(blob)
     except ValueError:
         raise SystemExit(
-            "Login failed: could not extract session cookies from the pasted cURL command. "
-            "Make sure you copied a request to api.monarch.com while logged in."
+            "Login failed: could not extract session cookies from the pasted "
+            "cURL command. Make sure you copied a request to api.monarch.com "
+            "while logged in."
         )
+
+
+def _browser_login() -> dict | None:
+    """Attempt browser-driven login. Returns the session dict on success, or
+    None on any failure so the caller falls back to the manual path."""
+    from financial_mcp.monarch.browser_login import (
+        BrowserLoginError,
+        capture_session_via_browser,
+    )
+
+    profile_dir = str(Path(__file__).resolve().parent.parent / ".pw-profile")
+    print(
+        "Opening a browser for Monarch sign-in — complete Google sign-in in "
+        "the window that appears."
+    )
+    try:
+        return capture_session_via_browser(profile_dir=profile_dir)
+    except BrowserLoginError as exc:
+        print(
+            f"Browser login unavailable ({exc}). Falling back to manual login.",
+            file=sys.stderr,
+        )
+        return None
+
+
+def _login(force_curl: bool = False) -> None:
+    session = None
+    if not force_curl:
+        session = _browser_login()
+    if session is None:
+        session = _curl_login()
     if not _validate(session):
-        raise SystemExit("Login failed. Try again with a fresh request.")
+        raise SystemExit("Login failed. Try again with a fresh session.")
     auth.save_session(session["session_id"], session["csrftoken"], _service_name())
-    print("Session saved to Keychain.")
+    print("Signed in — session saved to Keychain.")
 
 
 def main() -> None:
@@ -106,7 +140,7 @@ def main() -> None:
         auth.delete_session(_service_name())
         print("Logged out — session removed from Keychain.")
         return
-    _login()
+    _login(force_curl="--curl" in sys.argv)
 
 
 if __name__ == "__main__":
