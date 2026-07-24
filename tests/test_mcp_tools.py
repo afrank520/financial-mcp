@@ -221,3 +221,92 @@ def test_category_summary_returns_error_on_cloudflare_block(tmp_path):
     result = _tool(server, "category_summary")()
     assert isinstance(result, dict)
     assert "financial-mcp-login" in result["error"]
+
+
+class WindowAdapter(FakeAdapter):
+    """Two Amazon txns inside Jul 2026 — one charge, one refund."""
+
+    def get_transactions(self):
+        return [
+            Transaction(
+                id=Transaction.synth_id(
+                    datetime.date(2026, 7, 20), "Amazon", Decimal("-100.00"), "AMZN"
+                ),
+                date=datetime.date(2026, 7, 20),
+                merchant="Amazon",
+                category="Shopping",
+                account="Checking",
+                original_statement="AMZN",
+                notes="",
+                amount=Decimal("-100.00"),
+                tags=[],
+                owner="A",
+            ),
+            Transaction(
+                id=Transaction.synth_id(
+                    datetime.date(2026, 7, 21), "Amazon", Decimal("30.00"), "AMZN"
+                ),
+                date=datetime.date(2026, 7, 21),
+                merchant="Amazon",
+                category="Shopping",
+                account="Checking",
+                original_statement="AMZN",
+                notes="",
+                amount=Decimal("30.00"),
+                tags=[],
+                owner="A",
+            ),
+        ]
+
+
+def _window_service(tmp_path):
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    return DataService(WindowAdapter(), cache)
+
+
+def test_spending_summary_envelope_and_math(tmp_path):
+    server = build_server(_window_service(tmp_path))
+    result = _tool(server, "spending_summary")(
+        start_date="2026-07-19", end_date="2026-07-22", merchant="amazon"
+    )
+    # Freshness envelope keys present.
+    assert set(result) >= {"as_of", "age_hours", "stale", "count", "data"}
+    assert result["count"] == 2
+    data = result["data"]
+    # Money serialized as strings, computed exactly.
+    assert data["total"] == "70.00"  # 100.00 charge - 30.00 refund
+    assert data["gross_charges"] == "100.00"
+    assert data["refunds"] == "30.00"
+    assert data["charge_count"] == 1
+    assert data["refund_count"] == 1
+
+
+def test_spending_summary_bad_start_date(tmp_path):
+    server = build_server(_window_service(tmp_path))
+    result = _tool(server, "spending_summary")(start_date="July 19", end_date="2026-07-22")
+    assert result == {"error": "start_date must be YYYY-MM-DD"}
+
+
+def test_spending_summary_bad_end_date(tmp_path):
+    server = build_server(_window_service(tmp_path))
+    result = _tool(server, "spending_summary")(start_date="2026-07-19", end_date="nope")
+    assert result == {"error": "end_date must be YYYY-MM-DD"}
+
+
+def test_spending_summary_start_after_end(tmp_path):
+    server = build_server(_window_service(tmp_path))
+    result = _tool(server, "spending_summary")(start_date="2026-07-25", end_date="2026-07-22")
+    assert result == {"error": "start_date must not be after end_date"}
+
+
+def test_spending_summary_returns_error_on_expired_session(tmp_path):
+    from financial_mcp.monarch.community_adapter import SessionExpiredError
+
+    class ExpiredAdapter(FakeAdapter):
+        def get_transactions(self):
+            raise SessionExpiredError("expired")
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    server = build_server(DataService(ExpiredAdapter(), cache))
+    result = _tool(server, "spending_summary")(start_date="2026-07-19", end_date="2026-07-22")
+    assert "financial-mcp-login" in result["error"]

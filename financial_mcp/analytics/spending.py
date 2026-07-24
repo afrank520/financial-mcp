@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 from collections import defaultdict
 from decimal import Decimal
 
@@ -54,3 +55,41 @@ def search(
     if max_amount is not None:
         result = [t for t in result if t.amount <= max_amount]
     return result
+
+
+def date_range_summary(
+    txns: list[Transaction],
+    start: datetime.date,
+    end: datetime.date,
+    *,
+    merchant: str | None = None,
+    category: str | None = None,
+) -> dict:
+    """Server-computed spending summary over an inclusive [start, end] date window.
+
+    Reuses search() for merchant/category filtering, then computes exact
+    Decimal totals so callers never sum rows by hand.
+
+    total is net spend (gross_charges - refunds), sign-flipped so ordinary
+    spending is positive, matching Monarch's "Total spending" display. When
+    refunds exceed charges in the window, total can be negative. Sign convention:
+    negative amount = charge, positive = refund.
+
+    count is the total number of matching transactions. Because transactions with
+    amount exactly Decimal("0.00") are neither charges nor refunds, charge_count +
+    refund_count may be less than count when zero-amount rows exist.
+    """
+    in_window = [t for t in txns if start <= t.date <= end]
+    filtered = search(in_window, merchant=merchant, category=category)
+    charges = [t for t in filtered if t.amount < 0]
+    refunds = [t for t in filtered if t.amount > 0]
+    gross_charges = -sum((t.amount for t in charges), Decimal("0"))
+    refund_total = sum((t.amount for t in refunds), Decimal("0"))
+    return {
+        "total": gross_charges - refund_total,
+        "gross_charges": gross_charges,
+        "refunds": refund_total,
+        "count": len(filtered),
+        "charge_count": len(charges),
+        "refund_count": len(refunds),
+    }

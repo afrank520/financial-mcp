@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 from decimal import Decimal
 
 from mcp.server.fastmcp import FastMCP
@@ -29,11 +30,13 @@ def build_server(svc: DataService) -> FastMCP:
     def _dump(models) -> list[dict]:
         return [m.model_dump(mode="json") for m in models]
 
-    def _envelope(data_type: str, rows: list[dict]) -> dict:
-        """Wrap tool rows with freshness metadata so Claude can reason about age.
+    def _envelope(data_type: str, data, count: int | None = None) -> dict:
+        """Wrap tool data with freshness metadata so Claude can reason about age.
 
-        Read freshness AFTER the rows are fetched (the fetch populates the
-        cache), so as_of reflects the data being returned.
+        Read freshness AFTER the data is fetched (the fetch populates the
+        cache), so as_of reflects the data being returned. `data` is normally a
+        list of rows (count defaults to len); pass an explicit count when data
+        is a single aggregate object.
         """
         f = svc.freshness(data_type)
         age_s = f["age_seconds"]
@@ -41,8 +44,8 @@ def build_server(svc: DataService) -> FastMCP:
             "as_of": f["as_of"],
             "age_hours": None if age_s is None else round(age_s / 3600, 1),
             "stale": not f["fresh"],
-            "count": len(rows),
-            "data": rows,
+            "count": len(data) if count is None else count,
+            "data": data,
         }
 
     def _guard(fn):
@@ -153,6 +156,45 @@ def build_server(svc: DataService) -> FastMCP:
                 "transactions", _jsonify(spending.monthly_spending(svc.transactions(), year))
             )
         )
+
+    @server.tool()
+    def spending_summary(
+        start_date: str,
+        end_date: str,
+        merchant: str | None = None,
+        category: str | None = None,
+    ) -> dict:
+        """Exact server-computed spending total for a date window (YYYY-MM-DD).
+
+        Use this for ANY "how much did I spend between/from date X to Y"
+        question instead of summing search_transactions rows yourself. Dates are
+        inclusive on both ends. Optionally filter by merchant/category substring.
+
+        Returns an envelope whose data has: total (net spend, sign-flipped so
+        ordinary spending is positive; can be negative when refunds exceed charges),
+        gross_charges (excludes refunds), refunds, count, charge_count, refund_count.
+        Note: charge_count + refund_count may be less than count when zero-amount
+        transactions exist. An UNFILTERED window may include internal transfers; a
+        merchant/category filter matches Monarch exactly.
+        """
+        try:
+            start = datetime.date.fromisoformat(start_date)
+        except ValueError:
+            return {"error": "start_date must be YYYY-MM-DD"}
+        try:
+            end = datetime.date.fromisoformat(end_date)
+        except ValueError:
+            return {"error": "end_date must be YYYY-MM-DD"}
+        if start > end:
+            return {"error": "start_date must not be after end_date"}
+
+        def _run():
+            summary = spending.date_range_summary(
+                svc.transactions(), start, end, merchant=merchant, category=category
+            )
+            return _envelope("transactions", _jsonify([summary])[0], count=summary["count"])
+
+        return _guard(_run)
 
     @server.tool()
     def cache_status() -> list[dict]:
