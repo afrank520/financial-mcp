@@ -389,47 +389,71 @@ git commit -m "feat: add balance_delta analytics (server-computed, end-minus-sta
 
 **Files:**
 - Modify: `financial_mcp/monarch/adapter.py` (add abstract method)
-- Modify: `financial_mcp/monarch/queries.py` (add `GET_BALANCE_HISTORY` — the string CONFIRMED in Task 1)
-- Modify: `financial_mcp/monarch/community_adapter.py` (implement + `_to_snapshot`)
+- Modify: `financial_mcp/monarch/queries.py` (add `GET_ACCOUNTS_MIN` + `GET_ACCOUNT_SNAPSHOTS` — the strings CONFIRMED in Task 1)
+- Modify: `financial_mcp/monarch/community_adapter.py` (implement fan-out)
 - Modify: `financial_mcp/monarch/csv_adapter.py` (return `[]`)
 - Modify: `tests/test_mcp_tools.py` and `tests/test_data_service.py` — add `get_balance_history` to their `FakeAdapter` classes (else the new abstract method makes them un-instantiable and the whole suite breaks).
 - Test: `tests/test_community_adapter.py` (append), `tests/test_csv_adapter.py` (append)
 
 **Interfaces:**
-- Consumes: `BalanceSnapshot` (Task 2); the confirmed query shape + JSON path (Task 1); existing `CommunityAdapter._transport`, `_run`, `_default_transport`, `_today`.
+- Consumes: `BalanceSnapshot` (Task 2); the confirmed `snapshotsForAccount` shape (spec §5.1); existing `CommunityAdapter._transport`, `_run`, `_default_transport`.
 - Produces: `MonarchAdapter.get_balance_history(self) -> list[BalanceSnapshot]` on all adapters. Used by Task 6.
 
-> **NOTE:** the mapping and `GET_BALANCE_HISTORY` string below assume the **recentBalances** candidate from Task 1 (per-account array indexed daily from `startDate`). If Task 1 confirmed a different shape, adjust the query string, the `variables`, and the field access in `get_balance_history` to match §5.1 of the spec — the stub-transport test stays valid regardless because it asserts on mapped `BalanceSnapshot` output, but the mapping must match the real shape.
+> **CONFIRMED QUERY SHAPE (Task 1 live-verified — see spec §5.1):** the winning source is `snapshotsForAccount(accountId:)`, which returns explicit dated `{date, signedBalance}` pairs (NOT the dateless `recentBalances` array that the first probe tried). `get_balance_history` is a **two-step fan-out**: (1) fetch the account list `{id, displayName}`, (2) one `snapshotsForAccount` call per account, tagging each snapshot with that account's `displayName`. Dates come straight from the `date` field — no derivation, no `startDate`, no back-counting. `signedBalance` is already signed as Monarch reports (liabilities negative).
 
 > **CRITICAL ORDERING:** `MonarchAdapter` is a strict `abc.ABC` (see `tests/test_adapter_interface.py`). The moment the abstract method is added, any concrete subclass lacking `get_balance_history` raises `TypeError` on instantiation. The existing test fakes are `FakeAdapter` in `tests/test_mcp_tools.py` (subclassed by `ManyTxnAdapter`, `WindowAdapter`, and inline `ExpiredAdapter`/`BlockedAdapter`) and a separate `FakeAdapter` in `tests/test_data_service.py`. Both must gain a `get_balance_history` stub **in this task's Step 3**, or the whole suite fails to collect.
 
 - [ ] **Step 1: Write the failing tests (stub transport → deterministic, offline)**
 
+The stub mimics the real two-step fan-out: `GetAccountsMin` returns the account list, then `SnapshotsForAccount` is called once per account id.
+
 ```python
 # tests/test_community_adapter.py  (append)
-def test_get_balance_history_maps_points_per_account():
-    # Stub returns the confirmed shape: accounts[] each with displayName + a
-    # daily recentBalances array starting at the query's startDate.
+def test_get_balance_history_fans_out_and_maps_dated_snapshots():
+    # Two accounts; each snapshotsForAccount call returns dated pairs.
+    snaps_by_id = {
+        "acct-heloc": [
+            {"date": "2026-05-31", "signedBalance": -224600.00, "__typename": "AccountSnapshot"},
+            {"date": "2026-06-28", "signedBalance": -202143.55, "__typename": "AccountSnapshot"},
+        ],
+        "acct-broker": [
+            {"date": "2026-06-15", "signedBalance": 50000.00, "__typename": "AccountSnapshot"},
+        ],
+    }
+
     async def stub(operation, query, variables):
-        assert variables["startDate"]  # query supplies a start date
-        return {"accounts": [
-            {"id": "1", "displayName": "HELOC",
-             "recentBalances": ["-224600.00", "-224600.00", "-202143.55"]},
-        ]}
-    adapter = CommunityAdapter(
-        SESSION,
-        transport=stub,
-        today=lambda: datetime.date(2026, 1, 3),
-    )
+        if operation == "GetAccountsMin":
+            return {"accounts": [
+                {"id": "acct-heloc", "displayName": "HELOC"},
+                {"id": "acct-broker", "displayName": "Brokerage"},
+            ]}
+        if operation == "SnapshotsForAccount":
+            return {"snapshots": snaps_by_id[variables["id"]]}
+        raise AssertionError(f"unexpected operation {operation}")
+
+    adapter = CommunityAdapter(SESSION, transport=stub)
     out = adapter.get_balance_history()
     assert all(isinstance(s, BalanceSnapshot) for s in out)
     heloc = [s for s in out if s.account == "HELOC"]
-    assert heloc[-1].balance == Decimal("-202143.55")
-    # sorted by (account, date); dates derived by index from HISTORY_START
-    assert heloc == sorted(heloc, key=lambda s: s.date)
+    assert [s.date for s in heloc] == [datetime.date(2026, 5, 31), datetime.date(2026, 6, 28)]
+    assert heloc[-1].balance == Decimal("-202143.55")   # signed, penny-exact from a float
+    # sorted by (account, date)
+    assert out == sorted(out, key=lambda s: (s.account, s.date))
+
+
+def test_get_balance_history_skips_accounts_with_no_snapshots():
+    async def stub(operation, query, variables):
+        if operation == "GetAccountsMin":
+            return {"accounts": [{"id": "a1", "displayName": "Closed Card"}]}
+        if operation == "SnapshotsForAccount":
+            return {"snapshots": []}
+        raise AssertionError(operation)
+
+    adapter = CommunityAdapter(SESSION, transport=stub)
+    assert adapter.get_balance_history() == []
 ```
 
-(Add `BalanceSnapshot` to the existing `from financial_mcp.monarch.models import ...` line — that file currently imports nothing from models, so add `from financial_mcp.monarch.models import BalanceSnapshot` near the top. `datetime`, `Decimal`, `CommunityAdapter`, and `SESSION` are already imported in that file.)
+(Add `from financial_mcp.monarch.models import BalanceSnapshot` near the top of `tests/test_community_adapter.py` — that file currently imports nothing from models. `datetime`, `Decimal`, `CommunityAdapter`, and `SESSION` are already imported there.)
 
 ```python
 # tests/test_csv_adapter.py  (append)
@@ -442,10 +466,10 @@ def test_csv_adapter_balance_history_is_empty():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `uv run pytest tests/test_community_adapter.py::test_get_balance_history_maps_points_per_account tests/test_csv_adapter.py::test_csv_adapter_balance_history_is_empty -v`
+Run: `uv run pytest tests/test_community_adapter.py -k get_balance_history tests/test_csv_adapter.py::test_csv_adapter_balance_history_is_empty -v`
 Expected: FAIL — `AttributeError`/`ImportError` (no `get_balance_history`, no `BalanceSnapshot` import).
 
-- [ ] **Step 3: Write minimal implementation (adapter + query + fakes, all together)**
+- [ ] **Step 3: Write minimal implementation (adapter + queries + fakes, all together)**
 
 Add to `financial_mcp/monarch/adapter.py` — update its import line and add the abstract method:
 
@@ -468,45 +492,54 @@ Add a stub to BOTH test fakes so they remain instantiable:
         return []
 ```
 
-Add to `financial_mcp/monarch/queries.py` (paste the CONFIRMED string from Task 1; this is the recentBalances candidate):
+Add to `financial_mcp/monarch/queries.py` (the CONFIRMED strings from Task 1 / spec §5.1 — operation name MUST match the document, or Monarch returns HTTP 400):
 
 ```python
-GET_BALANCE_HISTORY = """
-  query GetAccountHistory($startDate: Date!) {
+GET_ACCOUNTS_MIN = """
+  query GetAccountsMin {
     accounts {
       id
       displayName
-      recentBalances(startDate: $startDate)
+      __typename
+    }
+  }
+"""
+
+GET_ACCOUNT_SNAPSHOTS = """
+  query SnapshotsForAccount($id: UUID!) {
+    snapshots: snapshotsForAccount(accountId: $id) {
+      date
+      signedBalance
       __typename
     }
   }
 """
 ```
 
-Add to `financial_mcp/monarch/community_adapter.py` (import `BalanceSnapshot` and `GET_BALANCE_HISTORY`; `HISTORY_START` is a fixed lookback floor):
+Add to `financial_mcp/monarch/community_adapter.py` (import `BalanceSnapshot` and the two new queries):
 
 ```python
 from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Transaction
-from financial_mcp.monarch.queries import GET_ACCOUNTS, GET_BALANCE_HISTORY, GET_TRANSACTIONS
-
-HISTORY_START = datetime.date(2020, 1, 1)  # far enough back to cover any account
+from financial_mcp.monarch.queries import (
+    GET_ACCOUNT_SNAPSHOTS,
+    GET_ACCOUNTS,
+    GET_ACCOUNTS_MIN,
+    GET_TRANSACTIONS,
+)
 
     def get_balance_history(self) -> list[BalanceSnapshot]:
-        start = HISTORY_START
-        data = self._run(
-            self._transport("GetAccountHistory", GET_BALANCE_HISTORY, {"startDate": start.isoformat()})
-        )
+        accts = self._run(self._transport("GetAccountsMin", GET_ACCOUNTS_MIN, {}))
         out: list[BalanceSnapshot] = []
-        for acct in data.get("accounts", []):
+        for acct in accts.get("accounts", []):
             name = acct.get("displayName", "")
-            balances = acct.get("recentBalances") or []
-            for i, bal in enumerate(balances):
-                if bal is None:
-                    continue
+            data = self._run(
+                self._transport("SnapshotsForAccount", GET_ACCOUNT_SNAPSHOTS, {"id": acct["id"]})
+            )
+            for snap in data.get("snapshots") or []:
                 out.append(BalanceSnapshot(
                     account=name,
-                    date=start + datetime.timedelta(days=i),
-                    balance=Decimal(str(bal)),
+                    date=datetime.date.fromisoformat(snap["date"]),
+                    balance=Decimal(str(snap["signedBalance"])),
                 ))
         out.sort(key=lambda s: (s.account, s.date))
         return out
@@ -794,7 +827,7 @@ Expected: PASS (all prior tests + 4 new tool tests). Pay attention that `test_sp
 - [ ] **Step 5: Commit**
 
 ```bash
-git add financial_mcp/mcp_server.py tests/test_mcp_server.py
+git add financial_mcp/mcp_server.py tests/test_mcp_tools.py
 git commit -m "feat: balance_as_of + balance_delta MCP tools"
 ```
 
@@ -834,6 +867,6 @@ git commit -m "docs: balance-history tools shipped + live-proven"
 ---
 
 ## Notes for the executor
-- **Task 1 gates everything.** If the live query shape differs from the recentBalances candidate, fix `GET_BALANCE_HISTORY`, its `variables`, and `_to_snapshot`/`get_balance_history` mapping in Task 5 to match the confirmed §5.1 shape. The stub-transport tests stay valid because they assert on the mapped `BalanceSnapshot` output, not the wire shape.
-- Work on the existing `balance-history-source` branch (the design doc is already committed there).
-- If any test file named in a task doesn't exist yet, create it with the imports shown; if it exists, append.
+- **Task 1 is DONE (live-verified 2026-08-08).** The confirmed query is `snapshotsForAccount(accountId:)` returning dated `{date, signedBalance}` pairs — see spec §5.1 and Task 5, both already updated to this shape. Do NOT use the dateless `recentBalances` array (the rejected first candidate). No date derivation is needed; dates come straight from the `date` field.
+- Work on the existing `balance-history-source` branch (the design doc + this plan are already committed there).
+- All named test files already exist — append to them (don't recreate).

@@ -125,6 +125,29 @@ If either endpoint is null → `delta: null` + `reason` (never a silently-wrong 
 
 Before building anything on top, run `GET_BALANCE_HISTORY` against Adam's real org and confirm it returns real per-account `{date, balance}` history — **including the HELOC**. If Monarch's shape differs from the community-lib assumption, adjust the query then, not after building four layers on a guess.
 
+### 5.1 Confirmed query shape (Task 1, live-verified 2026-08-08)
+
+Two candidate endpoints were probed against the real org. **Winner: `snapshotsForAccount` — it carries explicit dates.**
+
+- **Rejected — `recentBalances(startDate:)`:** returns a *bare float array with no dates* (dates only implied by array position); array lengths vary per account (189 / 158 / 31 / 0); would require fragile back-counting from today + staleness heuristics. Compact bulk format, wrong grain for honest dating.
+- **WINNER — `snapshotsForAccount(accountId:)`** (extracted from the library's `get_account_history`). Returns explicit dated pairs:
+
+  ```graphql
+  query SnapshotsForAccount($id: UUID!) {
+    snapshots: snapshotsForAccount(accountId: $id) {
+      date
+      signedBalance
+      __typename
+    }
+  }
+  ```
+  - **Operation name:** `SnapshotsForAccount` (MUST match the document's named operation, or Monarch returns a generic HTTP 400 — this was the root cause of the first probe's failures).
+  - **Variables:** `{"id": "<account UUID string>"}` — the account `id` from `GetAccounts` (a numeric-looking string; passed as the GraphQL `UUID` scalar).
+  - **JSON path to points:** `data.snapshots[*]` → each `{date: "YYYY-MM-DD", signedBalance: <number>}`.
+  - **Balance field + sign:** `signedBalance` — already signed as Monarch reports (liabilities negative). CONFIRMED against the HELOC: −$179,366 (2024-02-14) → −$235,297 (2026-08-08).
+  - **Date field:** explicit ISO `date` per snapshot; daily grain; ~907 days (~2.5 yrs) of history for established accounts. No derivation needed.
+  - **Fan-out:** one call per account. `get_balance_history()` first fetches the account list (id + displayName) via the existing `GET_ACCOUNTS`, then issues one `SnapshotsForAccount` call per account, tagging each snapshot with the account's `displayName`. Accounts returning an empty/absent `snapshots` list contribute nothing (honest empty).
+
 ---
 
 ## 6. What this enables next
