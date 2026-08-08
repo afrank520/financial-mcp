@@ -6,9 +6,9 @@ from typing import TypeVar
 
 from financial_mcp.cache.sqlite_cache import SqliteCache
 from financial_mcp.monarch.adapter import MonarchAdapter
-from financial_mcp.monarch.models import Account, Balance, Transaction
+from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Transaction
 
-T = TypeVar("T", Account, Balance, Transaction)
+T = TypeVar("T", Account, Balance, BalanceSnapshot, Transaction)
 
 logger = logging.getLogger("financial_mcp")
 
@@ -45,8 +45,13 @@ class DataService:
     def accounts(self) -> list[Account]:
         return self._get("accounts", self._adapter.get_accounts, Account)
 
+    def balance_history(self) -> list[BalanceSnapshot]:
+        return self._get("balance_history", self._adapter.get_balance_history, BalanceSnapshot)
+
     def refresh(self, data_type: str | None = None) -> None:
-        types = [data_type] if data_type else ["transactions", "balances", "accounts"]
+        types = [data_type] if data_type else [
+            "transactions", "balances", "accounts", "balance_history"
+        ]
         for t in types:
             self._cache.invalidate(t)
         for t in types:
@@ -56,6 +61,8 @@ class DataService:
                 self.balances()
             elif t == "accounts":
                 self.accounts()
+            elif t == "balance_history":
+                self.balance_history()
 
     def freshness(self, data_type: str) -> dict:
         """Freshness metadata (as_of, age_seconds, fresh) for one data type."""

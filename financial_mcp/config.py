@@ -19,6 +19,7 @@ class CacheTTLs(BaseModel):
     cashflow: int = DAY
     categories: int = 7 * DAY
     merchants: int = 7 * DAY
+    balance_history: int = DAY
 
 
 class Config(BaseModel):

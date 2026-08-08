@@ -5,7 +5,7 @@ from financial_mcp.cache.sqlite_cache import SqliteCache
 from financial_mcp.config import CacheTTLs
 from financial_mcp.data_service import DataService
 from financial_mcp.monarch.adapter import MonarchAdapter
-from financial_mcp.monarch.models import Account, Balance, Transaction
+from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Transaction
 
 
 class FakeClock:
@@ -123,3 +123,33 @@ def test_accounts_never_cached(tmp_path):
     assert adapter.account_calls == 1
     svc.accounts()  # second call should also hit adapter
     assert adapter.account_calls == 2
+
+
+class _StubAdapter(MonarchAdapter):
+    def __init__(self, snaps): self._snaps = snaps; self.calls = 0
+    def source_name(self): return "csv"
+    def get_transactions(self): return []
+    def get_balances(self): return []
+    def get_accounts(self): return []
+    def get_balance_history(self):
+        self.calls += 1
+        return self._snaps
+
+
+def test_balance_history_is_served_and_cached(tmp_path):
+    snaps = [BalanceSnapshot(account="HELOC", date=datetime.date(2026, 6, 28), balance=Decimal("-202143.55"))]
+    adapter = _StubAdapter(snaps)
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(adapter, cache)
+    first = svc.balance_history()
+    assert first == snaps
+    # second call within TTL is served from cache (adapter not hit again)
+    second = svc.balance_history()
+    assert second == snaps
+    assert adapter.calls == 1
+    # reconstructed from JSON cache exactly (Decimal + date survive round-trip)
+    assert second[0].balance == Decimal("-202143.55")
+
+
+def test_cachettls_has_balance_history_field():
+    assert isinstance(CacheTTLs().balance_history, int)
