@@ -1,7 +1,7 @@
 # Monarch MCP — Balance History source + as-of / delta tools (design)
 
 **Date:** 2026-08-08
-**Status:** Design approved, pending spec review
+**Status:** Shipped + live-proven (2026-08-08). See §7.
 **Roadmap slot:** P2 "balance history / net-worth trend" (from Plan 3.0 North Star map). Foundation for the P1 savings-rate differentiator.
 
 ---
@@ -153,3 +153,20 @@ Two candidate endpoints were probed against the real org. **Winner: `snapshotsFo
 ## 6. What this enables next
 - **Savings-rate + "where it went" breakdown spec** — balance-delta reconciliation on top of verified history (the original P1 goal).
 - **HELOC glide-path checkpoint tracking** — `balance_as_of` at each checkpoint date.
+
+---
+
+## 7. Shipped + live-proven (2026-08-08)
+
+Built via subagent-driven development on branch `balance-history-source` (6 feature commits, model → analytics → adapter → data_service → tools). Every task passed its per-task review; the whole-branch final review (Opus) returned zero Critical / zero Important code findings. **129/129 tests green.**
+
+**Live end-to-end verification against the real org** (both tools invoked through the real `build_server` / `CommunityAdapter`, live Monarch session):
+
+- **Fan-out:** `get_balance_history()` pulled **27,129 snapshots across ~35 accounts**, daily grain, most from 2024-02-14 → 2026-08-08 (~907 days each). The `snapshotsForAccount(accountId:)` source (§5.1) held up at full scale.
+- **`balance_as_of(date="2026-06-30")`** → HELOC "15 Branwood HELOC (8300)" = **`-208361.26`**, exact-hit (`snapshot_date` 2026-06-30, `is_carry_forward` false — Monarch carries daily data so the requested date landed on a real snapshot). Envelope shape `{as_of, age_hours, stale, count, data}` confirmed (no `data_type` key). Balance signed as Monarch reports (liability negative, not flipped).
+- **`balance_delta(start="2026-05-31", end="2026-06-28")`** → HELOC start `-224793.33`, end `-208577.58`, **delta `+16215.75`** (paydown surfaces POSITIVE, per the sign convention). Nested `start`/`end` Decimals correctly stringified — the `_jsonify` recursion, live-proven.
+- **Error contracts:** bad date → `{"error": "date must be YYYY-MM-DD"}`; reversed range → `{"error": "start must not be after end"}`. Both fired.
+
+**Known boundary (noted for the savings-rate follow-on):** snapshots are keyed on account `displayName`, not account `id`. Distinct names in this org, so no collision today — but the reconciliation math in the next spec should be aware of the join key.
+
+**Docs decision:** the two tools are self-documenting via their `@server.tool()` docstrings (surfaced to the MCP client). No prior tool has ever been enumerated in README/INSTALL, so no markdown tool-list was added — the Task-8 brief's assumption of an existing INSTALL.md tool list was incorrect. The stale `refresh_cache` docstring (omitted `balance_history`) was fixed separately.
