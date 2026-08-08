@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from mcp.server.fastmcp import FastMCP
 
-from financial_mcp.analytics import spending
+from financial_mcp.analytics import balances, spending
 from financial_mcp.data_service import DataService
 from financial_mcp.monarch.community_adapter import CloudflareBlockedError, SessionExpiredError
 
@@ -197,6 +197,54 @@ def build_server(svc: DataService) -> FastMCP:
         return _guard(_run)
 
     @server.tool()
+    def balance_as_of(date: str) -> dict:
+        """Each account's balance as-of a date (YYYY-MM-DD), carry-forward.
+
+        Returns the last known balance on-or-before the date per account, with
+        the real snapshot_date it came from and is_carry_forward. Accounts with
+        no snapshot on-or-before the date return balance null + reason. Balances
+        are signed as Monarch reports them (liabilities negative). Use this for
+        glide-path checkpoints like "where was the HELOC on 2026-06-30".
+        """
+        try:
+            target = datetime.date.fromisoformat(date)
+        except ValueError:
+            return {"error": "date must be YYYY-MM-DD"}
+
+        def _run():
+            rows = balances.balance_as_of(svc.balance_history(), target)
+            return _envelope("balance_history", _jsonify(rows))
+
+        return _guard(_run)
+
+    @server.tool()
+    def balance_delta(start: str, end: str) -> dict:
+        """Per-account balance change between two dates (YYYY-MM-DD, inclusive).
+
+        Server-computed delta = end_balance - start_balance per account, so a
+        HELOC paydown surfaces as a POSITIVE delta. Each endpoint reports its
+        real snapshot_date and is_carry_forward. If either endpoint has no
+        balance, delta is null + reason. Use this for "how much did the HELOC
+        drop between X and Y" instead of subtracting balance_as_of calls yourself.
+        """
+        try:
+            s = datetime.date.fromisoformat(start)
+        except ValueError:
+            return {"error": "start must be YYYY-MM-DD"}
+        try:
+            e = datetime.date.fromisoformat(end)
+        except ValueError:
+            return {"error": "end must be YYYY-MM-DD"}
+        if s > e:
+            return {"error": "start must not be after end"}
+
+        def _run():
+            rows = balances.balance_delta(svc.balance_history(), s, e)
+            return _envelope("balance_history", _jsonify(rows))
+
+        return _guard(_run)
+
+    @server.tool()
     def cache_status() -> list[dict]:
         """Per-type cache freshness, age, source, and record count.
 
@@ -221,8 +269,13 @@ def build_server(svc: DataService) -> FastMCP:
 
 
 def _jsonify(rows: list[dict]) -> list[dict]:
-    """Convert Decimal values in analytics rows to strings for JSON transport."""
-    out = []
-    for r in rows:
-        out.append({k: (str(v) if isinstance(v, Decimal) else v) for k, v in r.items()})
-    return out
+    """Convert Decimal values (including nested dicts) to strings for JSON transport."""
+
+    def conv(v):
+        if isinstance(v, Decimal):
+            return str(v)
+        if isinstance(v, dict):
+            return {k: conv(x) for k, x in v.items()}
+        return v
+
+    return [{k: conv(v) for k, v in r.items()} for r in rows]

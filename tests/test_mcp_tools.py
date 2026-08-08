@@ -6,7 +6,7 @@ from financial_mcp.config import CacheTTLs
 from financial_mcp.data_service import DataService
 from financial_mcp.mcp_server import build_server
 from financial_mcp.monarch.adapter import MonarchAdapter
-from financial_mcp.monarch.models import Account, Balance, Transaction
+from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Transaction
 
 
 class FakeAdapter(MonarchAdapter):
@@ -313,3 +313,49 @@ def test_spending_summary_returns_error_on_expired_session(tmp_path):
     server = build_server(DataService(ExpiredAdapter(), cache))
     result = _tool(server, "spending_summary")(start_date="2026-07-19", end_date="2026-07-22")
     assert "financial-mcp-login" in result["error"]
+
+
+class BalanceHistoryAdapter(FakeAdapter):
+    """HELOC with two dated snapshots for as-of / delta tools."""
+
+    def get_balance_history(self):
+        return [
+            BalanceSnapshot(account="HELOC", date=datetime.date(2026, 5, 31), balance=Decimal("-224600.00")),
+            BalanceSnapshot(account="HELOC", date=datetime.date(2026, 6, 28), balance=Decimal("-202143.55")),
+        ]
+
+
+def _bh_service(tmp_path):
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    return DataService(BalanceHistoryAdapter(), cache)
+
+
+def test_balance_as_of_tool_carry_forward(tmp_path):
+    server = build_server(_bh_service(tmp_path))
+    result = _tool(server, "balance_as_of")(date="2026-06-30")
+    assert set(result) >= {"as_of", "age_hours", "stale", "count", "data"}
+    heloc = next(r for r in result["data"] if r["account"] == "HELOC")
+    assert heloc["balance"] == "-202143.55"      # Decimal serialized as string
+    assert heloc["snapshot_date"] == "2026-06-28"
+    assert heloc["is_carry_forward"] is True
+
+
+def test_balance_as_of_tool_rejects_bad_date(tmp_path):
+    server = build_server(_bh_service(tmp_path))
+    result = _tool(server, "balance_as_of")(date="not-a-date")
+    assert result == {"error": "date must be YYYY-MM-DD"}
+
+
+def test_balance_delta_tool_positive_paydown(tmp_path):
+    server = build_server(_bh_service(tmp_path))
+    result = _tool(server, "balance_delta")(start="2026-05-31", end="2026-06-28")
+    heloc = next(r for r in result["data"] if r["account"] == "HELOC")
+    assert heloc["delta"] == "22456.45"          # paydown surfaces positive, as string
+    assert heloc["start"]["balance"] == "-224600.00"   # nested Decimals also stringified
+    assert heloc["end"]["balance"] == "-202143.55"
+
+
+def test_balance_delta_tool_rejects_reversed_dates(tmp_path):
+    server = build_server(_bh_service(tmp_path))
+    result = _tool(server, "balance_delta")(start="2026-06-28", end="2026-05-31")
+    assert result == {"error": "start must not be after end"}
