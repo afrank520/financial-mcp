@@ -1,7 +1,7 @@
 import datetime
 from decimal import Decimal
 from financial_mcp.monarch.models import BalanceSnapshot
-from financial_mcp.analytics.balances import balance_as_of
+from financial_mcp.analytics.balances import balance_as_of, balance_delta
 
 D = datetime.date
 
@@ -37,3 +37,17 @@ def test_before_first_snapshot_is_null_with_reason():
 def test_rows_cover_all_accounts_sorted():
     rows = balance_as_of(_snaps(), D(2026, 6, 30))
     assert [r["account"] for r in rows] == ["Brokerage", "HELOC"]
+
+def test_delta_heloc_paydown_is_positive():
+    rows = balance_delta(_snaps(), D(2026, 5, 31), D(2026, 6, 28))
+    heloc = next(r for r in rows if r["account"] == "HELOC")
+    # -202143.55 - (-224600.00) = +22456.45 (paydown surfaces positive)
+    assert heloc["delta"] == Decimal("22456.45")
+    assert heloc["start"]["balance"] == Decimal("-224600.00")
+    assert heloc["end"]["balance"] == Decimal("-202143.55")
+
+def test_delta_null_when_endpoint_missing():
+    rows = balance_delta(_snaps(), D(2026, 6, 1), D(2026, 6, 28))  # Brokerage has no 6/1 start
+    bro = next(r for r in rows if r["account"] == "Brokerage")
+    assert bro["delta"] is None
+    assert "reason" in bro
