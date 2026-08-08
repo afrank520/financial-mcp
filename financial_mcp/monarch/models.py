@@ -37,3 +37,9 @@ class Account(BaseModel):
     name: str
     latest_balance: Decimal
     as_of: datetime.date
+
+
+class BalanceSnapshot(BaseModel):
+    account: str
+    date: datetime.date
+    balance: Decimal

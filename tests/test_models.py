@@ -1,7 +1,7 @@
 import datetime
 from decimal import Decimal
 
-from financial_mcp.monarch.models import Account, Balance, Transaction
+from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Transaction
 
 
 def test_transaction_synth_id_is_stable_and_hex():
@@ -46,3 +46,14 @@ def test_balance_and_account():
         name="Checking", latest_balance=Decimal("1000.00"), as_of=datetime.date(2026, 1, 2)
     )
     assert bal.account == acct.name
+
+
+def test_balance_snapshot_fields_and_json_roundtrip():
+    s = BalanceSnapshot(account="HELOC", date=datetime.date(2026, 6, 28), balance=Decimal("-202143.55"))
+    assert s.account == "HELOC"
+    assert s.date == datetime.date(2026, 6, 28)
+    assert s.balance == Decimal("-202143.55")
+    dumped = s.model_dump(mode="json")
+    assert dumped == {"account": "HELOC", "date": "2026-06-28", "balance": "-202143.55"}
+    # reconstructable from cached JSON exactly as DataService._get does (model(**d))
+    assert BalanceSnapshot(**dumped) == s
