@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 
-from financial_mcp.monarch.models import Account, Balance, Transaction
+from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Transaction
 
 
 class MonarchAdapter(abc.ABC):
@@ -17,6 +17,9 @@ class MonarchAdapter(abc.ABC):
 
     @abc.abstractmethod
     def get_accounts(self) -> list[Account]: ...
+
+    @abc.abstractmethod
+    def get_balance_history(self) -> list[BalanceSnapshot]: ...
 
     @abc.abstractmethod
     def source_name(self) -> str: ...

@@ -52,6 +52,9 @@ class FakeAdapter(MonarchAdapter):
             Account(name="Checking", latest_balance=Decimal("100"), as_of=datetime.date(2026, 1, 2))
         ]
 
+    def get_balance_history(self):
+        return []
+
     def source_name(self):
         return "fake"
 

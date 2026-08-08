@@ -10,8 +10,13 @@ from decimal import Decimal
 
 from financial_mcp.monarch import auth
 from financial_mcp.monarch.adapter import MonarchAdapter
-from financial_mcp.monarch.models import Account, Balance, Transaction
-from financial_mcp.monarch.queries import GET_ACCOUNTS, GET_TRANSACTIONS
+from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Transaction
+from financial_mcp.monarch.queries import (
+    GET_ACCOUNT_SNAPSHOTS,
+    GET_ACCOUNTS,
+    GET_ACCOUNTS_MIN,
+    GET_TRANSACTIONS,
+)
 
 GRAPHQL_URL = "https://api.monarch.com/graphql"
 # A real-browser User-Agent keeps us clear of any future Cloudflare UA rule.
@@ -168,4 +173,21 @@ class CommunityAdapter(MonarchAdapter):
             total = block.get("totalCount")
             if total is not None and offset >= total:
                 break
+        return out
+
+    def get_balance_history(self) -> list[BalanceSnapshot]:
+        accts = self._run(self._transport("GetAccountsMin", GET_ACCOUNTS_MIN, {}))
+        out: list[BalanceSnapshot] = []
+        for acct in accts.get("accounts", []):
+            name = acct.get("displayName", "")
+            data = self._run(
+                self._transport("SnapshotsForAccount", GET_ACCOUNT_SNAPSHOTS, {"id": acct["id"]})
+            )
+            for snap in data.get("snapshots") or []:
+                out.append(BalanceSnapshot(
+                    account=name,
+                    date=datetime.date.fromisoformat(snap["date"]),
+                    balance=Decimal(str(snap["signedBalance"])),
+                ))
+        out.sort(key=lambda s: (s.account, s.date))
         return out

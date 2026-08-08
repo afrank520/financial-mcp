@@ -10,6 +10,7 @@ from financial_mcp.monarch.community_adapter import (
     CommunityAdapter,
     SessionExpiredError,
 )
+from financial_mcp.monarch.models import BalanceSnapshot
 
 SESSION = {"session_id": "sid-123", "csrftoken": "csrf-abc"}
 
@@ -341,3 +342,47 @@ def test_default_transport_500_raises_runtime_error(monkeypatch):
     adapter = CommunityAdapter(SESSION, transport=None)
     with pytest.raises(RuntimeError, match="Monarch HTTP 500"):
         adapter._run(adapter._default_transport("GetAccounts", "query {}", {}))
+
+
+def test_get_balance_history_fans_out_and_maps_dated_snapshots():
+    # Two accounts; each snapshotsForAccount call returns dated pairs.
+    snaps_by_id = {
+        "acct-heloc": [
+            {"date": "2026-05-31", "signedBalance": -224600.00, "__typename": "AccountSnapshot"},
+            {"date": "2026-06-28", "signedBalance": -202143.55, "__typename": "AccountSnapshot"},
+        ],
+        "acct-broker": [
+            {"date": "2026-06-15", "signedBalance": 50000.00, "__typename": "AccountSnapshot"},
+        ],
+    }
+
+    async def stub(operation, query, variables):
+        if operation == "GetAccountsMin":
+            return {"accounts": [
+                {"id": "acct-heloc", "displayName": "HELOC"},
+                {"id": "acct-broker", "displayName": "Brokerage"},
+            ]}
+        if operation == "SnapshotsForAccount":
+            return {"snapshots": snaps_by_id[variables["id"]]}
+        raise AssertionError(f"unexpected operation {operation}")
+
+    adapter = CommunityAdapter(SESSION, transport=stub)
+    out = adapter.get_balance_history()
+    assert all(isinstance(s, BalanceSnapshot) for s in out)
+    heloc = [s for s in out if s.account == "HELOC"]
+    assert [s.date for s in heloc] == [datetime.date(2026, 5, 31), datetime.date(2026, 6, 28)]
+    assert heloc[-1].balance == Decimal("-202143.55")   # signed, penny-exact from a float
+    # sorted by (account, date)
+    assert out == sorted(out, key=lambda s: (s.account, s.date))
+
+
+def test_get_balance_history_skips_accounts_with_no_snapshots():
+    async def stub(operation, query, variables):
+        if operation == "GetAccountsMin":
+            return {"accounts": [{"id": "a1", "displayName": "Closed Card"}]}
+        if operation == "SnapshotsForAccount":
+            return {"snapshots": []}
+        raise AssertionError(operation)
+
+    adapter = CommunityAdapter(SESSION, transport=stub)
+    assert adapter.get_balance_history() == []

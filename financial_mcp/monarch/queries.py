@@ -146,3 +146,23 @@ GET_TRANSACTIONS = """
     __typename
   }
 """
+
+GET_ACCOUNTS_MIN = """
+  query GetAccountsMin {
+    accounts {
+      id
+      displayName
+      __typename
+    }
+  }
+"""
+
+GET_ACCOUNT_SNAPSHOTS = """
+  query SnapshotsForAccount($id: UUID!) {
+    snapshots: snapshotsForAccount(accountId: $id) {
+      date
+      signedBalance
+      __typename
+    }
+  }
+"""

@@ -5,7 +5,7 @@ import datetime
 from decimal import Decimal
 
 from financial_mcp.monarch.adapter import MonarchAdapter
-from financial_mcp.monarch.models import Account, Balance, Transaction
+from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Transaction
 
 
 def _parse_date(s: str) -> datetime.date:
@@ -81,3 +81,6 @@ class CsvAdapter(MonarchAdapter):
             Account(name=name, latest_balance=b.balance, as_of=b.date)
             for name, b in sorted(latest.items())
         ]
+
+    def get_balance_history(self) -> list[BalanceSnapshot]:
+        return []

@@ -55,3 +55,10 @@ def test_blank_amount_raises_error(tmp_path):
     adapter = CsvAdapter(str(txn_file), str(bal_file))
     with pytest.raises(ValueError, match=r"Empty Amount cell.*Date=2026-01-02.*Merchant=Costco"):
         adapter.get_transactions()
+
+
+def test_csv_adapter_balance_history_is_empty():
+    from financial_mcp.monarch.csv_adapter import CsvAdapter
+    # get_balance_history reads no files, so paths need not exist
+    adapter = CsvAdapter(transactions_path="x", balances_path="y")
+    assert adapter.get_balance_history() == []
