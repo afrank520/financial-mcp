@@ -344,8 +344,7 @@ def test_default_transport_500_raises_runtime_error(monkeypatch):
         adapter._run(adapter._default_transport("GetAccounts", "query {}", {}))
 
 
-def test_get_balance_history_fans_out_and_maps_dated_snapshots():
-    # Two accounts; each snapshotsForAccount call returns dated pairs.
+def test_get_balance_history_fans_out_and_maps_classified_snapshots():
     snaps_by_id = {
         "acct-heloc": [
             {"date": "2026-05-31", "signedBalance": -224600.00, "__typename": "AccountSnapshot"},
@@ -359,8 +358,10 @@ def test_get_balance_history_fans_out_and_maps_dated_snapshots():
     async def stub(operation, query, variables):
         if operation == "GetAccountsMin":
             return {"accounts": [
-                {"id": "acct-heloc", "displayName": "HELOC"},
-                {"id": "acct-broker", "displayName": "Brokerage"},
+                {"id": "acct-heloc", "displayName": "HELOC",
+                 "type": {"name": "loan"}, "includeInNetWorth": True},
+                {"id": "acct-broker", "displayName": "Brokerage",
+                 "type": {"name": "brokerage"}, "includeInNetWorth": True},
             ]}
         if operation == "SnapshotsForAccount":
             return {"snapshots": snaps_by_id[variables["id"]]}
@@ -369,17 +370,39 @@ def test_get_balance_history_fans_out_and_maps_dated_snapshots():
     adapter = CommunityAdapter(SESSION, transport=stub)
     out = adapter.get_balance_history()
     assert all(isinstance(s, BalanceSnapshot) for s in out)
-    heloc = [s for s in out if s.account == "HELOC"]
+    heloc = [s for s in out if s.account_id == "acct-heloc"]
     assert [s.date for s in heloc] == [datetime.date(2026, 5, 31), datetime.date(2026, 6, 28)]
-    assert heloc[-1].balance == Decimal("-202143.55")   # signed, penny-exact from a float
-    # sorted by (account, date)
-    assert out == sorted(out, key=lambda s: (s.account, s.date))
+    assert heloc[-1].balance == Decimal("-202143.55")
+    assert heloc[-1].display_name == "HELOC"
+    assert heloc[-1].type_name == "loan"
+    assert heloc[-1].include_in_net_worth is True
+    assert out == sorted(out, key=lambda s: (s.display_name, s.account_id, s.date))
+
+
+def test_get_balance_history_classifies_excluded_and_untyped_accounts():
+    async def stub(operation, query, variables):
+        if operation == "GetAccountsMin":
+            return {"accounts": [
+                {"id": "old529", "displayName": "Braden 529 (01)",
+                 "type": {"name": "brokerage"}, "includeInNetWorth": False},
+                {"id": "notype", "displayName": "Odd", "type": None, "includeInNetWorth": True},
+            ]}
+        if operation == "SnapshotsForAccount":
+            return {"snapshots": [{"date": "2026-06-01", "signedBalance": 10.0}]}
+        raise AssertionError(operation)
+
+    adapter = CommunityAdapter(SESSION, transport=stub)
+    out = {s.account_id: s for s in adapter.get_balance_history()}
+    assert out["old529"].include_in_net_worth is False
+    assert out["old529"].type_name == "brokerage"
+    assert out["notype"].type_name is None       # missing type block -> None, no crash
 
 
 def test_get_balance_history_skips_accounts_with_no_snapshots():
     async def stub(operation, query, variables):
         if operation == "GetAccountsMin":
-            return {"accounts": [{"id": "a1", "displayName": "Closed Card"}]}
+            return {"accounts": [{"id": "a1", "displayName": "Closed Card",
+                                  "type": {"name": "credit"}, "includeInNetWorth": True}]}
         if operation == "SnapshotsForAccount":
             return {"snapshots": []}
         raise AssertionError(operation)

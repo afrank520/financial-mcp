@@ -180,17 +180,23 @@ class CommunityAdapter(MonarchAdapter):
         accts = self._run(self._transport("GetAccountsMin", GET_ACCOUNTS_MIN, {}))
         out: list[BalanceSnapshot] = []
         for acct in accts.get("accounts", []):
-            name = acct.get("displayName", "")
+            account_id = acct["id"]
+            display_name = acct.get("displayName", "")
+            type_name = (acct.get("type") or {}).get("name")
+            include = acct.get("includeInNetWorth", True)
             data = self._run(
-                self._transport("SnapshotsForAccount", GET_ACCOUNT_SNAPSHOTS, {"id": acct["id"]})
+                self._transport("SnapshotsForAccount", GET_ACCOUNT_SNAPSHOTS, {"id": account_id})
             )
             for snap in data.get("snapshots") or []:
                 out.append(BalanceSnapshot(
-                    account=name,
+                    account_id=account_id,
+                    display_name=display_name,
                     date=datetime.date.fromisoformat(snap["date"]),
                     balance=Decimal(str(snap["signedBalance"])),
+                    type_name=type_name,
+                    include_in_net_worth=include,
                 ))
-        out.sort(key=lambda s: (s.account, s.date))
+        out.sort(key=lambda s: (s.display_name, s.account_id, s.date))
         return out
 
     def get_cashflow(self, start: datetime.date, end: datetime.date) -> Cashflow:

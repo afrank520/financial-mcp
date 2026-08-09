@@ -150,7 +150,9 @@ class _StubAdapter(MonarchAdapter):
 
 
 def test_balance_history_is_served_and_cached(tmp_path):
-    snaps = [BalanceSnapshot(account="HELOC", date=datetime.date(2026, 6, 28), balance=Decimal("-202143.55"))]
+    snaps = [BalanceSnapshot(account_id="heloc", display_name="HELOC",
+                             date=datetime.date(2026, 6, 28), balance=Decimal("-202143.55"),
+                             type_name="loan", include_in_net_worth=True)]
     adapter = _StubAdapter(snaps)
     cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
     svc = DataService(adapter, cache)

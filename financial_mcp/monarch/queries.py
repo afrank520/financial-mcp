@@ -152,6 +152,11 @@ GET_ACCOUNTS_MIN = """
     accounts {
       id
       displayName
+      includeInNetWorth
+      type {
+        name
+        __typename
+      }
       __typename
     }
   }

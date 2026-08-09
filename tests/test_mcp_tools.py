@@ -327,8 +327,10 @@ class BalanceHistoryAdapter(FakeAdapter):
 
     def get_balance_history(self):
         return [
-            BalanceSnapshot(account="HELOC", date=datetime.date(2026, 5, 31), balance=Decimal("-224600.00")),
-            BalanceSnapshot(account="HELOC", date=datetime.date(2026, 6, 28), balance=Decimal("-202143.55")),
+            BalanceSnapshot(account_id="heloc", display_name="HELOC", date=datetime.date(2026, 5, 31),
+                            balance=Decimal("-224600.00"), type_name="loan", include_in_net_worth=True),
+            BalanceSnapshot(account_id="heloc", display_name="HELOC", date=datetime.date(2026, 6, 28),
+                            balance=Decimal("-202143.55"), type_name="loan", include_in_net_worth=True),
         ]
 
 
@@ -341,7 +343,7 @@ def test_balance_as_of_tool_carry_forward(tmp_path):
     server = build_server(_bh_service(tmp_path))
     result = _tool(server, "balance_as_of")(date="2026-06-30")
     assert set(result) >= {"as_of", "age_hours", "stale", "count", "data"}
-    heloc = next(r for r in result["data"] if r["account"] == "HELOC")
+    heloc = next(r for r in result["data"] if r["display_name"] == "HELOC")
     assert heloc["balance"] == "-202143.55"      # Decimal serialized as string
     assert heloc["snapshot_date"] == "2026-06-28"
     assert heloc["is_carry_forward"] is True
@@ -356,7 +358,7 @@ def test_balance_as_of_tool_rejects_bad_date(tmp_path):
 def test_balance_delta_tool_positive_paydown(tmp_path):
     server = build_server(_bh_service(tmp_path))
     result = _tool(server, "balance_delta")(start="2026-05-31", end="2026-06-28")
-    heloc = next(r for r in result["data"] if r["account"] == "HELOC")
+    heloc = next(r for r in result["data"] if r["display_name"] == "HELOC")
     assert heloc["delta"] == "22456.45"          # paydown surfaces positive, as string
     assert heloc["start"]["balance"] == "-224600.00"   # nested Decimals also stringified
     assert heloc["end"]["balance"] == "-202143.55"
