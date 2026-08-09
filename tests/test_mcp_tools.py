@@ -368,3 +368,89 @@ def test_balance_delta_tool_rejects_reversed_dates(tmp_path):
     server = build_server(_bh_service(tmp_path))
     result = _tool(server, "balance_delta")(start="2026-06-28", end="2026-05-31")
     assert result == {"error": "start must not be after end"}
+
+
+class SavingsAdapter(FakeAdapter):
+    """Cashflow + two dated snapshots per account for savings_summary."""
+
+    def get_cashflow(self, start, end):
+        return Cashflow(
+            start=start, end=end,
+            income=Decimal("45976.73"), expense=Decimal("-34059.93"),
+            savings=Decimal("11916.80"), savings_rate_monarch=Decimal("0.2592"),
+        )
+
+    def get_balance_history(self):
+        def two(account_id, name, type_name, s, e):
+            return [
+                BalanceSnapshot(account_id=account_id, display_name=name, date=datetime.date(2026, 6, 1),
+                                balance=Decimal(s), type_name=type_name, include_in_net_worth=True),
+                BalanceSnapshot(account_id=account_id, display_name=name, date=datetime.date(2026, 6, 30),
+                                balance=Decimal(e), type_name=type_name, include_in_net_worth=True),
+            ]
+        return (
+            two("chk", "Checking", "depository", "0.00", "3000.00")
+            + two("heloc", "HELOC", "loan", "-100000.00", "-89385.00")   # +10615 paydown
+            + two("cc", "Credit Card", "credit", "0.00", "-500.00")       # -500
+            + two("401k", "401k", "brokerage", "0.00", "8000.00")         # shown separately
+        )
+
+
+def _sav_service(tmp_path):
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    return DataService(SavingsAdapter(), cache)
+
+
+def test_savings_summary_envelope_and_reconciliation(tmp_path):
+    server = build_server(_sav_service(tmp_path))
+    result = _tool(server, "savings_summary")(start="2026-06-01", end="2026-06-30")
+    assert set(result) >= {"as_of", "age_hours", "stale", "count", "data"}
+    data = result["data"]
+    assert data["window"] == {"start": "2026-06-01", "end": "2026-06-30"}
+    # money serialized as strings
+    assert data["cashflow"]["income"] == "45976.73"
+    assert data["cashflow"]["savings_rate"] == "0.2592"
+    assert data["cashflow"]["rate_is_floored"] is False
+    # 3000 - 500 + 10615 = 13115.00 ; gap = 13115.00 - 11916.80 = 1198.20
+    assert data["net_worth_delta_cash_debt"] == "13115.00"
+    assert data["reconciliation_gap"] == "1198.20"
+    cd = {r["account_id"] for r in data["where_it_went"]["cash_and_debt"]}
+    inv = {r["account_id"] for r in data["where_it_went"]["investments_shown_separately"]}
+    assert cd == {"chk", "cc", "heloc"}
+    assert inv == {"401k"}
+    # nested Decimals inside list rows are stringified
+    heloc = next(r for r in data["where_it_went"]["cash_and_debt"] if r["account_id"] == "heloc")
+    assert heloc["delta"] == "10615.00"
+    assert heloc["end"]["balance"] == "-89385.00"
+    assert "take-home" in data["methodology"]
+
+
+def test_savings_summary_bad_start_date(tmp_path):
+    server = build_server(_sav_service(tmp_path))
+    result = _tool(server, "savings_summary")(start="June 1", end="2026-06-30")
+    assert result == {"error": "start must be YYYY-MM-DD"}
+
+
+def test_savings_summary_bad_end_date(tmp_path):
+    server = build_server(_sav_service(tmp_path))
+    result = _tool(server, "savings_summary")(start="2026-06-01", end="nope")
+    assert result == {"error": "end must be YYYY-MM-DD"}
+
+
+def test_savings_summary_start_after_end(tmp_path):
+    server = build_server(_sav_service(tmp_path))
+    result = _tool(server, "savings_summary")(start="2026-06-30", end="2026-06-01")
+    assert result == {"error": "start must not be after end"}
+
+
+def test_savings_summary_error_on_expired_session(tmp_path):
+    from financial_mcp.monarch.community_adapter import SessionExpiredError
+
+    class ExpiredAdapter(SavingsAdapter):
+        def get_cashflow(self, start, end):
+            raise SessionExpiredError("expired")
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    server = build_server(DataService(ExpiredAdapter(), cache))
+    result = _tool(server, "savings_summary")(start="2026-06-01", end="2026-06-30")
+    assert "financial-mcp-login" in result["error"]

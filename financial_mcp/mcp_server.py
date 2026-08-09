@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from mcp.server.fastmcp import FastMCP
 
-from financial_mcp.analytics import balances, spending
+from financial_mcp.analytics import balances, savings, spending
 from financial_mcp.data_service import DataService
 from financial_mcp.monarch.community_adapter import CloudflareBlockedError, SessionExpiredError
 
@@ -245,6 +245,39 @@ def build_server(svc: DataService) -> FastMCP:
         return _guard(_run)
 
     @server.tool()
+    def savings_summary(start: str, end: str) -> dict:
+        """Savings rate + "where it went" reconciliation for a window (YYYY-MM-DD, inclusive).
+
+        Reports Monarch's authoritative cashflow savings rate (on take-home / net
+        income) plus a true signed rate — Monarch floors negative rates at 0, so
+        rate_is_floored flags when they diverge. Then reconciles that cash savings
+        against the change in cash+debt account balances (net_worth_delta_cash_debt),
+        naming the unattributed reconciliation_gap. Investment/real-estate balances
+        are shown separately (mostly market movement, not saving). The methodology
+        field explains what the rate does and does not include — always surface it
+        when discussing the number. Use this for "what was my savings rate" and
+        "where did my savings go" questions.
+        """
+        try:
+            s = datetime.date.fromisoformat(start)
+        except ValueError:
+            return {"error": "start must be YYYY-MM-DD"}
+        try:
+            e = datetime.date.fromisoformat(end)
+        except ValueError:
+            return {"error": "end must be YYYY-MM-DD"}
+        if s > e:
+            return {"error": "start must not be after end"}
+
+        def _run():
+            cashflow = svc.cashflow(s, e)
+            delta_rows = balances.balance_delta(svc.balance_history(), s, e)
+            data = savings.summarize(cashflow, delta_rows)
+            return _envelope("balance_history", _jsonify([data])[0], count=1)
+
+        return _guard(_run)
+
+    @server.tool()
     def cache_status() -> list[dict]:
         """Per-type cache freshness, age, source, and record count.
 
@@ -270,13 +303,15 @@ def build_server(svc: DataService) -> FastMCP:
 
 
 def _jsonify(rows: list[dict]) -> list[dict]:
-    """Convert Decimal values (including nested dicts) to strings for JSON transport."""
+    """Convert Decimal values (including nested dicts and lists) to strings for JSON transport."""
 
     def conv(v):
         if isinstance(v, Decimal):
             return str(v)
         if isinstance(v, dict):
             return {k: conv(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [conv(x) for x in v]
         return v
 
     return [{k: conv(v) for k, v in r.items()} for r in rows]
