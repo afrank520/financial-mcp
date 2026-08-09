@@ -49,14 +49,38 @@ def test_balance_and_account():
 
 
 def test_balance_snapshot_fields_and_json_roundtrip():
-    s = BalanceSnapshot(account="HELOC", date=datetime.date(2026, 6, 28), balance=Decimal("-202143.55"))
-    assert s.account == "HELOC"
-    assert s.date == datetime.date(2026, 6, 28)
+    s = BalanceSnapshot(
+        account_id="acct-heloc",
+        display_name="HELOC",
+        date=datetime.date(2026, 6, 28),
+        balance=Decimal("-202143.55"),
+        type_name="loan",
+        include_in_net_worth=True,
+    )
+    assert s.account_id == "acct-heloc"
+    assert s.display_name == "HELOC"
     assert s.balance == Decimal("-202143.55")
+    assert s.type_name == "loan"
+    assert s.include_in_net_worth is True
     dumped = s.model_dump(mode="json")
-    assert dumped == {"account": "HELOC", "date": "2026-06-28", "balance": "-202143.55"}
-    # reconstructable from cached JSON exactly as DataService._get does (model(**d))
+    assert dumped == {
+        "account_id": "acct-heloc",
+        "display_name": "HELOC",
+        "date": "2026-06-28",
+        "balance": "-202143.55",
+        "type_name": "loan",
+        "include_in_net_worth": True,
+    }
     assert BalanceSnapshot(**dumped) == s
+
+
+def test_balance_snapshot_classification_defaults():
+    s = BalanceSnapshot(
+        account_id="a1", display_name="Checking",
+        date=datetime.date(2026, 6, 1), balance=Decimal("100.00"),
+    )
+    assert s.type_name is None
+    assert s.include_in_net_worth is True
 
 
 def test_cashflow_fields_and_json_roundtrip():

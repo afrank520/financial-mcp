@@ -40,9 +40,12 @@ class Account(BaseModel):
 
 
 class BalanceSnapshot(BaseModel):
-    account: str
+    account_id: str
+    display_name: str
     date: datetime.date
     balance: Decimal
+    type_name: str | None = None
+    include_in_net_worth: bool = True
 
 
 class Cashflow(BaseModel):
