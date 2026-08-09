@@ -10,11 +10,12 @@ from decimal import Decimal
 
 from financial_mcp.monarch import auth
 from financial_mcp.monarch.adapter import MonarchAdapter
-from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Transaction
+from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Cashflow, Transaction
 from financial_mcp.monarch.queries import (
     GET_ACCOUNT_SNAPSHOTS,
     GET_ACCOUNTS,
     GET_ACCOUNTS_MIN,
+    GET_CASHFLOW_SUMMARY,
     GET_TRANSACTIONS,
 )
 
@@ -191,3 +192,27 @@ class CommunityAdapter(MonarchAdapter):
                 ))
         out.sort(key=lambda s: (s.account, s.date))
         return out
+
+    def get_cashflow(self, start: datetime.date, end: datetime.date) -> Cashflow:
+        variables = {
+            "filters": {
+                "search": "",
+                "categories": [],
+                "accounts": [],
+                "tags": [],
+                "startDate": start.isoformat(),
+                "endDate": end.isoformat(),
+            }
+        }
+        data = self._run(
+            self._transport("Web_GetCashFlowPage", GET_CASHFLOW_SUMMARY, variables)
+        )
+        summary = data["summary"][0]["summary"]
+        return Cashflow(
+            start=start,
+            end=end,
+            income=Decimal(str(summary["sumIncome"])),
+            expense=Decimal(str(summary["sumExpense"])),
+            savings=Decimal(str(summary["savings"])),
+            savings_rate_monarch=Decimal(str(summary["savingsRate"])),
+        )

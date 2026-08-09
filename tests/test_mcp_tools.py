@@ -6,7 +6,7 @@ from financial_mcp.config import CacheTTLs
 from financial_mcp.data_service import DataService
 from financial_mcp.mcp_server import build_server
 from financial_mcp.monarch.adapter import MonarchAdapter
-from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Transaction
+from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Cashflow, Transaction
 
 
 class FakeAdapter(MonarchAdapter):
@@ -37,6 +37,13 @@ class FakeAdapter(MonarchAdapter):
 
     def get_balance_history(self):
         return []
+
+    def get_cashflow(self, start, end):
+        return Cashflow(
+            start=start, end=end,
+            income=Decimal("0"), expense=Decimal("0"),
+            savings=Decimal("0"), savings_rate_monarch=Decimal("0"),
+        )
 
     def source_name(self):
         return "fake"

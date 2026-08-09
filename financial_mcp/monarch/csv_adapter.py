@@ -5,7 +5,7 @@ import datetime
 from decimal import Decimal
 
 from financial_mcp.monarch.adapter import MonarchAdapter
-from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Transaction
+from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Cashflow, Transaction
 
 
 def _parse_date(s: str) -> datetime.date:
@@ -84,3 +84,6 @@ class CsvAdapter(MonarchAdapter):
 
     def get_balance_history(self) -> list[BalanceSnapshot]:
         return []
+
+    def get_cashflow(self, start: datetime.date, end: datetime.date) -> Cashflow:
+        raise RuntimeError("cashflow is not available in CSV mode")

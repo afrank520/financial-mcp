@@ -166,3 +166,18 @@ GET_ACCOUNT_SNAPSHOTS = """
     }
   }
 """
+
+GET_CASHFLOW_SUMMARY = """
+  query Web_GetCashFlowPage($filters: TransactionFilterInput) {
+    summary: aggregates(filters: $filters, fillEmptyValues: true) {
+      summary {
+        sumIncome
+        sumExpense
+        savings
+        savingsRate
+        __typename
+      }
+      __typename
+    }
+  }
+"""

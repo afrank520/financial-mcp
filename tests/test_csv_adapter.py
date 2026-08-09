@@ -62,3 +62,12 @@ def test_csv_adapter_balance_history_is_empty():
     # get_balance_history reads no files, so paths need not exist
     adapter = CsvAdapter(transactions_path="x", balances_path="y")
     assert adapter.get_balance_history() == []
+
+
+def test_csv_adapter_get_cashflow_raises():
+    import pytest
+    from financial_mcp.monarch.csv_adapter import CsvAdapter
+    import datetime
+    adapter = CsvAdapter(transactions_path="x", balances_path="y")
+    with pytest.raises(RuntimeError, match="not available in CSV mode"):
+        adapter.get_cashflow(datetime.date(2026, 6, 1), datetime.date(2026, 6, 30))

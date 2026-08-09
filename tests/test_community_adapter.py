@@ -10,7 +10,7 @@ from financial_mcp.monarch.community_adapter import (
     CommunityAdapter,
     SessionExpiredError,
 )
-from financial_mcp.monarch.models import BalanceSnapshot
+from financial_mcp.monarch.models import BalanceSnapshot, Cashflow
 
 SESSION = {"session_id": "sid-123", "csrftoken": "csrf-abc"}
 
@@ -386,3 +386,44 @@ def test_get_balance_history_skips_accounts_with_no_snapshots():
 
     adapter = CommunityAdapter(SESSION, transport=stub)
     assert adapter.get_balance_history() == []
+
+
+def test_get_cashflow_maps_aggregates_and_floored_rate():
+    async def stub(operation, query, variables):
+        assert operation == "Web_GetCashFlowPage"
+        assert variables["filters"]["startDate"] == "2026-06-01"
+        assert variables["filters"]["endDate"] == "2026-06-30"
+        return {"summary": [{"summary": {
+            "sumIncome": 45976.73,
+            "sumExpense": -34059.93,
+            "savings": 11916.80,
+            "savingsRate": 0.2592,
+            "__typename": "TransactionsSummary",
+        }}]}
+
+    adapter = CommunityAdapter(SESSION, transport=stub)
+    cf = adapter.get_cashflow(datetime.date(2026, 6, 1), datetime.date(2026, 6, 30))
+    assert isinstance(cf, Cashflow)
+    assert cf.start == datetime.date(2026, 6, 1)
+    assert cf.end == datetime.date(2026, 6, 30)
+    assert cf.income == Decimal("45976.73")     # penny-exact through str()
+    assert cf.expense == Decimal("-34059.93")
+    assert cf.savings == Decimal("11916.80")
+    assert cf.savings_rate_monarch == Decimal("0.2592")
+
+
+def test_get_cashflow_passes_through_monarch_floored_negative_rate():
+    # YTD live case: real savings is negative but Monarch floors the rate to 0.
+    async def stub(operation, query, variables):
+        return {"summary": [{"summary": {
+            "sumIncome": 100000.00,
+            "sumExpense": -131086.46,
+            "savings": -31086.46,
+            "savingsRate": 0.0,
+            "__typename": "TransactionsSummary",
+        }}]}
+
+    adapter = CommunityAdapter(SESSION, transport=stub)
+    cf = adapter.get_cashflow(datetime.date(2026, 1, 1), datetime.date(2026, 8, 9))
+    assert cf.savings == Decimal("-31086.46")
+    assert cf.savings_rate_monarch == Decimal("0")   # Monarch floored it; we pass it through
