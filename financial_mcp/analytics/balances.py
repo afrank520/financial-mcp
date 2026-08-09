@@ -15,45 +15,56 @@ def _as_of_one(points: list[BalanceSnapshot], target: datetime.date) -> BalanceS
 
 
 def balance_as_of(snapshots: list[BalanceSnapshot], target_date: datetime.date) -> list[dict]:
-    by_account: dict[str, list[BalanceSnapshot]] = defaultdict(list)
+    by_id: dict[str, list[BalanceSnapshot]] = defaultdict(list)
     for s in snapshots:
-        by_account[s.account].append(s)
+        by_id[s.account_id].append(s)
     rows: list[dict] = []
-    for account in sorted(by_account):
-        chosen = _as_of_one(by_account[account], target_date)
+    for account_id, points in by_id.items():
+        latest = points[-1]  # any snapshot carries account-level label + classification
+        base = {
+            "account_id": account_id,
+            "display_name": latest.display_name,
+            "type_name": latest.type_name,
+            "include_in_net_worth": latest.include_in_net_worth,
+            "as_of_requested": target_date.isoformat(),
+        }
+        chosen = _as_of_one(points, target_date)
         if chosen is None:
             rows.append({
-                "account": account,
+                **base,
                 "balance": None,
-                "as_of_requested": target_date.isoformat(),
                 "snapshot_date": None,
                 "is_carry_forward": False,
                 "reason": "no snapshot on or before requested date",
             })
         else:
             rows.append({
-                "account": account,
+                **base,
                 "balance": chosen.balance,
-                "as_of_requested": target_date.isoformat(),
                 "snapshot_date": chosen.date.isoformat(),
                 "is_carry_forward": chosen.date != target_date,
             })
+    rows.sort(key=lambda r: (r["display_name"], r["account_id"]))
     return rows
 
 
 def balance_delta(
     snapshots: list[BalanceSnapshot], start: datetime.date, end: datetime.date
 ) -> list[dict]:
-    start_rows = {r["account"]: r for r in balance_as_of(snapshots, start)}
-    end_rows = {r["account"]: r for r in balance_as_of(snapshots, end)}
+    start_rows = {r["account_id"]: r for r in balance_as_of(snapshots, start)}
+    end_rows = {r["account_id"]: r for r in balance_as_of(snapshots, end)}
     rows: list[dict] = []
-    for account in sorted(set(start_rows) | set(end_rows)):
-        s = start_rows.get(account)
-        e = end_rows.get(account)
+    for account_id in set(start_rows) | set(end_rows):
+        s = start_rows.get(account_id)
+        e = end_rows.get(account_id)
+        meta = s or e  # both carry the same account-level label + classification
         s_bal = None if s is None else s["balance"]
         e_bal = None if e is None else e["balance"]
         row = {
-            "account": account,
+            "account_id": account_id,
+            "display_name": meta["display_name"],
+            "type_name": meta["type_name"],
+            "include_in_net_worth": meta["include_in_net_worth"],
             "start": None if s is None else {
                 "balance": s["balance"],
                 "snapshot_date": s["snapshot_date"],
@@ -71,4 +82,5 @@ def balance_delta(
         else:
             row["delta"] = e_bal - s_bal
         rows.append(row)
+    rows.sort(key=lambda r: (r["display_name"], r["account_id"]))
     return rows
