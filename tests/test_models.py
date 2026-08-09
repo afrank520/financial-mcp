@@ -1,7 +1,7 @@
 import datetime
 from decimal import Decimal
 
-from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Transaction
+from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Cashflow, Transaction
 
 
 def test_transaction_synth_id_is_stable_and_hex():
@@ -57,3 +57,29 @@ def test_balance_snapshot_fields_and_json_roundtrip():
     assert dumped == {"account": "HELOC", "date": "2026-06-28", "balance": "-202143.55"}
     # reconstructable from cached JSON exactly as DataService._get does (model(**d))
     assert BalanceSnapshot(**dumped) == s
+
+
+def test_cashflow_fields_and_json_roundtrip():
+    cf = Cashflow(
+        start=datetime.date(2026, 6, 1),
+        end=datetime.date(2026, 6, 30),
+        income=Decimal("45976.73"),
+        expense=Decimal("-34059.93"),
+        savings=Decimal("11916.80"),
+        savings_rate_monarch=Decimal("0.2592"),
+    )
+    assert cf.income == Decimal("45976.73")
+    assert cf.expense == Decimal("-34059.93")
+    assert cf.savings == Decimal("11916.80")
+    assert cf.savings_rate_monarch == Decimal("0.2592")
+    dumped = cf.model_dump(mode="json")
+    assert dumped == {
+        "start": "2026-06-01",
+        "end": "2026-06-30",
+        "income": "45976.73",
+        "expense": "-34059.93",
+        "savings": "11916.80",
+        "savings_rate_monarch": "0.2592",
+    }
+    # reconstructable from cached JSON exactly
+    assert Cashflow(**dumped) == cf

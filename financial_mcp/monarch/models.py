@@ -43,3 +43,12 @@ class BalanceSnapshot(BaseModel):
     account: str
     date: datetime.date
     balance: Decimal
+
+
+class Cashflow(BaseModel):
+    start: datetime.date
+    end: datetime.date
+    income: Decimal
+    expense: Decimal
+    savings: Decimal
+    savings_rate_monarch: Decimal
