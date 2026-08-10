@@ -186,3 +186,43 @@ GET_CASHFLOW_SUMMARY = """
     }
   }
 """
+
+GET_AGGREGATE_SNAPSHOTS = """
+  query GetAggregateSnapshots($filters: AggregateSnapshotFilters) {
+    aggregateSnapshots(filters: $filters) {
+      date
+      balance
+      __typename
+    }
+  }
+"""
+
+GET_BUDGETS = """
+  query GetJointPlanningData($startDate: Date!, $endDate: Date!, $useLegacyGoals: Boolean!, $useV2Goals: Boolean!) {
+    budgetData(startMonth: $startDate, endMonth: $endDate) {
+      monthlyAmountsByCategory {
+        category { id __typename }
+        monthlyAmounts {
+          month
+          plannedCashFlowAmount
+          actualAmount
+          remainingAmount
+          __typename
+        }
+        __typename
+      }
+      __typename
+    }
+  }
+"""
+
+GET_CATEGORIES = """
+  query GetCategories {
+    categories {
+      id
+      name
+      group { id name __typename }
+      __typename
+    }
+  }
+"""
