@@ -425,6 +425,47 @@ def test_savings_summary_envelope_and_reconciliation(tmp_path):
     assert "take-home" in data["methodology"]
 
 
+class FlooredSavingsAdapter(FakeAdapter):
+    """A bad month: spending exceeds take-home income, so savings is negative
+    and Monarch floors the rate to 0. No balance history (empty) — the true
+    signed negative rate and rate_is_floored flag must still survive JSON
+    transport end-to-end through the tool."""
+
+    def get_cashflow(self, start, end):
+        return Cashflow(
+            start=start, end=end,
+            income=Decimal("100000.00"), expense=Decimal("-131086.46"),
+            savings=Decimal("-31086.46"), savings_rate_monarch=Decimal("0"),
+        )
+
+    def get_balance_history(self):
+        return []
+
+
+def _floored_service(tmp_path):
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    return DataService(FlooredSavingsAdapter(), cache)
+
+
+def test_savings_summary_floored_negative_rate_survives_transport(tmp_path):
+    server = build_server(_floored_service(tmp_path))
+    result = _tool(server, "savings_summary")(start="2026-01-01", end="2026-06-30")
+    assert set(result) >= {"as_of", "age_hours", "stale", "count", "data"}
+    data = result["data"]
+    cf = data["cashflow"]
+    # Monarch floors negative rates to 0; we surface the true signed rate + flag.
+    # -31086.46 / 100000.00 = -0.3108646 -> -0.3109 (ROUND_HALF_UP, 4dp)
+    assert cf["savings"] == "-31086.46"
+    assert cf["savings_rate"] == "-0.3109"
+    assert cf["savings_rate_monarch"] == "0"
+    assert cf["rate_is_floored"] is True
+    # Empty balance history: nothing to sum, gap = 0 - savings = 31086.46
+    assert data["where_it_went"]["cash_and_debt"] == []
+    assert data["where_it_went"]["investments_shown_separately"] == []
+    assert data["net_worth_delta_cash_debt"] == "0"
+    assert data["reconciliation_gap"] == "31086.46"
+
+
 def test_savings_summary_bad_start_date(tmp_path):
     server = build_server(_sav_service(tmp_path))
     result = _tool(server, "savings_summary")(start="June 1", end="2026-06-30")
