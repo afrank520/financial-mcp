@@ -107,3 +107,24 @@ def test_cashflow_fields_and_json_roundtrip():
     }
     # reconstructable from cached JSON exactly
     assert Cashflow(**dumped) == cf
+
+
+def test_networth_snapshot_holds_decimal():
+    from financial_mcp.monarch.models import NetWorthSnapshot
+    s = NetWorthSnapshot(date=datetime.date(2026, 6, 30), net_worth=Decimal("123456.78"))
+    assert s.net_worth == Decimal("123456.78")
+
+
+def test_category_group_optional():
+    from financial_mcp.monarch.models import Category
+    c = Category(id="c1", name="Groceries", group="Food & Dining")
+    assert c.group == "Food & Dining"
+    assert Category(id="c2", name="Odd").group is None
+
+
+def test_budget_item_fields():
+    from financial_mcp.monarch.models import BudgetItem
+    b = BudgetItem(category_id="c1", budgeted=Decimal("500.00"),
+                   actual=Decimal("-620.00"), remaining=Decimal("-120.00"))
+    assert b.category_id == "c1"
+    assert b.remaining == Decimal("-120.00")
