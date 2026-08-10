@@ -1,7 +1,7 @@
 # Monarch MCP — Savings rate + "where it went" reconciliation (design)
 
 **Date:** 2026-08-09
-**Status:** Approved design — ready for implementation plan.
+**Status:** Shipped + live-proven (2026-08-09).
 **Roadmap slot:** P1 differentiator (the derived-ratio advisory tool). Builds directly on the shipped balance-history source (`balance_delta`) and a new `get_cashflow` source.
 
 ---
@@ -143,6 +143,14 @@ Cashflow:
 - No live calls in the suite.
 
 ---
+
+## 5a. Shipped live-verification (2026-08-09, post-build, in Claude Desktop against the real synced org)
+
+**PASSED — penny-perfect against the Monarch dashboard (Goal #4 ground truth).**
+
+- **June 2026** ("What was my savings rate in June 2026?"): `savings_rate` **0.2592 (25.9%)**, `rate_is_floored: false`, methodology surfaced. Cross-checked against the Monarch Cash Flow dashboard for June 2026: income **$45,976.73** (dashboard $45,977), expense **−$34,059.93** ($34,060), total savings **$11,916.80** ($11,917), savings rate **25.9%** — exact match. Reconciliation gap ≈ **$3,566**, correctly framed as internal transfers / snapshot timing (not attributed to a single cause).
+- **YTD 2026 Jan–Jun** ("...and where did it go?"): net-positive window, `savings_rate` **0.039 (3.9%)**, $9,880.64 saved on $251,337.83 take-home. The "where it went" reconciliation worked end-to-end: debt paydown itemized per account (mortgage −$12,703, SoFi −$1,859, Optima cleared −$3,746, HELOC +$28,959 draw), ~$34K of kids'/cash transfers correctly attributed to balance deltas (excluded from the cashflow rate), retirement (401k +$78,763) and real-estate (+$168,700) **shown separately, not summed**, gap ≈ **$15,481** named, and the 529s + Amex Gold correctly flagged in `excluded_accounts` for a missing January baseline (null-delta → listed, not silently dropped). **No duplicate-displayName account double-counted** — the id-keying migration is proven live.
+- The floored-negative-rate path was not exercised in this run (the model chose a net-positive Jan–Jun window) but is covered by unit test `test_floored_negative_rate_flagged`; the §5.1 pre-build probe confirmed the live floored behavior directly.
 
 ## 5. Live verification (done 2026-08-09, before design lock)
 
