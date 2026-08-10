@@ -10,7 +10,7 @@ from financial_mcp.monarch.community_adapter import (
     CommunityAdapter,
     SessionExpiredError,
 )
-from financial_mcp.monarch.models import BalanceSnapshot, Cashflow
+from financial_mcp.monarch.models import BalanceSnapshot, BudgetItem, Cashflow, Category, NetWorthSnapshot
 
 SESSION = {"session_id": "sid-123", "csrftoken": "csrf-abc"}
 
@@ -450,3 +450,54 @@ def test_get_cashflow_passes_through_monarch_floored_negative_rate():
     cf = adapter.get_cashflow(datetime.date(2026, 1, 1), datetime.date(2026, 8, 9))
     assert cf.savings == Decimal("-31086.46")
     assert cf.savings_rate_monarch == Decimal("0")   # Monarch floored it; we pass it through
+
+
+def test_get_networth_history_maps_snapshots():
+    async def stub(operation, query, variables):
+        assert operation == "GetAggregateSnapshots"
+        return {"aggregateSnapshots": [
+            {"date": "2026-01-31", "balance": 1250000.00, "__typename": "AggregateData"},
+            {"date": "2026-02-28", "balance": 1262500.55, "__typename": "AggregateData"},
+        ]}
+
+    adapter = CommunityAdapter(SESSION, transport=stub)
+    out = adapter.get_networth_history()
+    assert all(isinstance(s, NetWorthSnapshot) for s in out)
+    assert out[0].date == datetime.date(2026, 1, 31)
+    assert out[1].net_worth == Decimal("1262500.55")   # penny-exact through str()
+
+
+def test_get_categories_maps_group():
+    async def stub(operation, query, variables):
+        assert operation == "GetCategories"
+        return {"categories": [
+            {"id": "c1", "name": "Groceries", "group": {"id": "g1", "name": "Food & Dining"}},
+            {"id": "c2", "name": "Mystery", "group": None},
+        ]}
+
+    adapter = CommunityAdapter(SESSION, transport=stub)
+    out = {c.id: c for c in adapter.get_categories()}
+    assert out["c1"].name == "Groceries"
+    assert out["c1"].group == "Food & Dining"
+    assert out["c2"].group is None      # missing group block -> None, no crash
+
+
+def test_get_budgets_maps_planned_actual_remaining():
+    async def stub(operation, query, variables):
+        assert operation == "GetJointPlanningData"
+        assert variables["startDate"] == "2026-06-01"
+        assert variables["endDate"] == "2026-06-30"
+        return {"budgetData": {"monthlyAmountsByCategory": [
+            {"category": {"id": "c1"}, "monthlyAmounts": [
+                {"month": "2026-06-01", "plannedCashFlowAmount": 500.00,
+                 "actualAmount": -620.00, "remainingAmount": -120.00}]},
+        ]}}
+
+    adapter = CommunityAdapter(SESSION, transport=stub)
+    out = adapter.get_budgets(datetime.date(2026, 6, 1), datetime.date(2026, 6, 30))
+    assert len(out) == 1
+    assert isinstance(out[0], BudgetItem)
+    assert out[0].category_id == "c1"
+    assert out[0].budgeted == Decimal("500.00")
+    assert out[0].actual == Decimal("-620.00")
+    assert out[0].remaining == Decimal("-120.00")

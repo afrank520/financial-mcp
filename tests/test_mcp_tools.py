@@ -45,6 +45,15 @@ class FakeAdapter(MonarchAdapter):
             savings=Decimal("0"), savings_rate_monarch=Decimal("0"),
         )
 
+    def get_networth_history(self):
+        return []
+
+    def get_categories(self):
+        return []
+
+    def get_budgets(self, start, end):
+        return []
+
     def source_name(self):
         return "fake"
 

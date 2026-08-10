@@ -62,6 +62,15 @@ class FakeAdapter(MonarchAdapter):
             savings=Decimal("0"), savings_rate_monarch=Decimal("0"),
         )
 
+    def get_networth_history(self):
+        return []
+
+    def get_categories(self):
+        return []
+
+    def get_budgets(self, start, end):
+        return []
+
     def source_name(self):
         return "fake"
 
@@ -147,6 +156,9 @@ class _StubAdapter(MonarchAdapter):
             income=Decimal("0"), expense=Decimal("0"),
             savings=Decimal("0"), savings_rate_monarch=Decimal("0"),
         )
+    def get_networth_history(self): return []
+    def get_categories(self): return []
+    def get_budgets(self, start, end): return []
 
 
 def test_balance_history_is_served_and_cached(tmp_path):
