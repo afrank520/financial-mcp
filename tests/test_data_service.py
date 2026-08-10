@@ -1,7 +1,7 @@
 import datetime
 from decimal import Decimal
 
-from financial_mcp.cache.sqlite_cache import SqliteCache
+from financial_mcp.cache.sqlite_cache import SCHEMA_VERSION, SqliteCache
 from financial_mcp.config import CacheTTLs
 from financial_mcp.data_service import DataService
 from financial_mcp.monarch.adapter import MonarchAdapter
@@ -168,3 +168,74 @@ def test_balance_history_is_served_and_cached(tmp_path):
 
 def test_cachettls_has_balance_history_field():
     assert isinstance(CacheTTLs().balance_history, int)
+
+
+def test_stale_schema_version_forces_live_refetch_and_restores(tmp_path):
+    # Reproduces the migration defect: a warm cache entry persisted under the
+    # OLD BalanceSnapshot shape ({account, date, balance}) must not be handed
+    # to BalanceSnapshot(**d) -- that raises pydantic.ValidationError because
+    # account_id/display_name are now required. Instead DataService must treat
+    # the version mismatch as a cache miss, re-fetch live, and re-store under
+    # the current schema.
+    clock = FakeClock(1000.0)
+    new_snap = BalanceSnapshot(
+        account_id="heloc", display_name="HELOC",
+        date=datetime.date(2026, 6, 28), balance=Decimal("-202143.55"),
+        type_name="loan", include_in_net_worth=True,
+    )
+    adapter = _StubAdapter([new_snap])
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs(), clock=clock)
+    # Write an old-schema row directly, bypassing store() (which always writes
+    # the current SCHEMA_VERSION) -- this simulates the live, pre-migration
+    # cache.db that ships with this branch's merge.
+    cache._conn.execute(
+        "INSERT INTO cache_entries (data_type, payload, last_refresh, source, schema_version) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("balance_history",
+         '[{"account": "HELOC", "date": "2026-06-28", "balance": "-202143.55"}]',
+         clock.t, "monarch", SCHEMA_VERSION - 1),
+    )
+    cache._conn.commit()
+
+    svc = DataService(adapter, cache)
+    result = svc.balance_history()  # must NOT raise pydantic.ValidationError
+
+    assert result == [new_snap]
+    assert adapter.calls == 1  # live re-fetch happened, not a stale reconstruction
+
+    # And it was re-stored under the current schema -- a second call within
+    # TTL now serves from cache without hitting the adapter again.
+    svc.balance_history()
+    assert adapter.calls == 1
+
+
+def test_stale_fallback_reraises_on_schema_version_mismatch_instead_of_crashing(tmp_path):
+    # If the live fetch also fails, DataService's stale-fallback path must not
+    # hand the version-mismatched (old-shape) row to BalanceSnapshot(**d) --
+    # that would crash with pydantic.ValidationError instead of the original
+    # fetch error. A version-mismatched entry must be treated as "no usable
+    # cache", so the original fetch exception propagates.
+    clock = FakeClock(1000.0)
+    adapter = _StubAdapter([])
+
+    class _FailingAdapter(_StubAdapter):
+        def get_balance_history(self):
+            raise RuntimeError("monarch down")
+
+    failing_adapter = _FailingAdapter([])
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs(), clock=clock)
+    cache._conn.execute(
+        "INSERT INTO cache_entries (data_type, payload, last_refresh, source, schema_version) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("balance_history",
+         '[{"account": "HELOC", "date": "2026-06-28", "balance": "-202143.55"}]',
+         clock.t, "monarch", SCHEMA_VERSION - 1),
+    )
+    cache._conn.commit()
+
+    svc = DataService(failing_adapter, cache)
+    try:
+        svc.balance_history()
+        assert False, "expected RuntimeError to propagate, not a crash on stale reconstruction"
+    except RuntimeError as e:
+        assert "monarch down" in str(e)

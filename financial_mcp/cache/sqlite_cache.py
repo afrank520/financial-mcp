@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 from financial_mcp.config import CacheTTLs
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Always-live (TTL 0) types are refetched every call, so a successful fetch
 # leaves age ~= 0. If age exceeds this grace window, the data is NOT live — it
@@ -57,11 +57,27 @@ class SqliteCache:
         )
         self._conn.commit()
 
+    def _row_schema_version(self, data_type: str) -> int | None:
+        row = self._conn.execute(
+            "SELECT schema_version FROM cache_entries WHERE data_type=?", (data_type,)
+        ).fetchone()
+        return row[0] if row else None
+
     def load(self, data_type: str) -> list[dict]:
         row = self._conn.execute(
-            "SELECT payload FROM cache_entries WHERE data_type=?", (data_type,)
+            "SELECT payload, schema_version FROM cache_entries WHERE data_type=?", (data_type,)
         ).fetchone()
-        return json.loads(row[0]) if row else []
+        if row is None:
+            return []
+        payload, schema_version = row
+        if schema_version != SCHEMA_VERSION:
+            # A version mismatch means the persisted row was written by an
+            # older model shape (e.g. the pre-migration BalanceSnapshot). It
+            # must never be handed to model(**d) -- treat it as no usable
+            # cache at all, for every caller (is_fresh, DataService's
+            # live path, and DataService's stale-fallback path alike).
+            return []
+        return json.loads(payload)
 
     def _last_refresh(self, data_type: str) -> float | None:
         row = self._conn.execute(
@@ -76,6 +92,12 @@ class SqliteCache:
     def is_fresh(self, data_type: str) -> bool:
         age = self.age_seconds(data_type)
         if age is None:
+            return False
+        row_version = self._row_schema_version(data_type)
+        if row_version != SCHEMA_VERSION:
+            # A schema-version mismatch is never fresh, regardless of age --
+            # the persisted row was written under an older model shape and
+            # forcing a live re-fetch is the only safe path (see load()).
             return False
         return age < self._ttl_for(data_type)
 

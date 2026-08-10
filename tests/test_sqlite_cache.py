@@ -1,4 +1,4 @@
-from financial_mcp.cache.sqlite_cache import SqliteCache
+from financial_mcp.cache.sqlite_cache import SCHEMA_VERSION, SqliteCache
 from financial_mcp.config import CacheTTLs
 
 
@@ -95,6 +95,40 @@ def test_freshness_none_when_never_stored(tmp_path):
     assert f["as_of"] is None
     assert f["age_seconds"] is None
     assert f["fresh"] is False
+
+
+def test_schema_version_mismatch_is_not_fresh(tmp_path):
+    # Simulate a row persisted under a pre-migration schema (old schema_version,
+    # payload missing the new required fields). Even though it's well within
+    # TTL, a version mismatch must NOT be reported as fresh -- it forces a
+    # live re-fetch instead of handing old-shape rows to the Pydantic model.
+    clock = FakeClock(t=1000.0)
+    c = _cache(tmp_path, clock)
+    c._conn.execute(
+        "INSERT INTO cache_entries (data_type, payload, last_refresh, source, schema_version) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("balance_history", '[{"account": "HELOC", "date": "2026-06-28", "balance": "-100"}]',
+         clock.t, "monarch", SCHEMA_VERSION - 1),
+    )
+    c._conn.commit()
+    clock.t = 1001.0  # age 1 second -- well within any reasonable TTL
+    assert c.is_fresh("balance_history") is False
+
+
+def test_load_returns_empty_for_schema_version_mismatch(tmp_path):
+    # load() must not hand back an old-shape payload either -- a version
+    # mismatch must behave as "no usable cache" for any caller, including
+    # DataService's stale-fallback branch.
+    clock = FakeClock(t=1000.0)
+    c = _cache(tmp_path, clock)
+    c._conn.execute(
+        "INSERT INTO cache_entries (data_type, payload, last_refresh, source, schema_version) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("balance_history", '[{"account": "HELOC", "date": "2026-06-28", "balance": "-100"}]',
+         clock.t, "monarch", SCHEMA_VERSION - 1),
+    )
+    c._conn.commit()
+    assert c.load("balance_history") == []
 
 
 def test_persists_across_instances(tmp_path):
