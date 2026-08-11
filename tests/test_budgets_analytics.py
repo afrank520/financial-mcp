@@ -92,3 +92,15 @@ def test_income_row_flagged_favorable_when_over_earned():
     inc = out["totals"]["income"]
     assert inc["favorable"] is True
     assert "over_budget" not in inc
+
+
+def test_unrecognized_group_type_falls_into_unknown_bucket():
+    cats = [Category(id="x1", name="Odd", group="Weird", group_type="loan")]
+    items = [BudgetItem(category_id="x1", budgeted=Decimal("10.00"),
+                        actual=Decimal("-30.00"), remaining=Decimal("-20.00"))]
+    out = budgets.budget_status(items, cats, D(2026, 6, 1), D(2026, 6, 30))
+    row = out["categories"][0]
+    assert row["type"] == "unknown"          # unrecognized string, not income
+    assert row["over_budget"] is True        # literal flag, never favorable
+    assert "favorable" not in row
+    assert out["totals"]["unknown"]["remaining"] == Decimal("-20.00")

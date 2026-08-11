@@ -314,10 +314,13 @@ def build_server(svc: DataService) -> FastMCP:
         """Per-category budgeted vs. actual for a month window (YYYY-MM-DD, inclusive).
 
         The red/green scorecard: each budgeted category with budgeted, actual,
-        remaining, and an over_budget flag (worst-over-budget first), plus a
-        rolled-up totals block. The numbers are Monarch's own budget figures,
-        passed through as-is. Use this for "how am I doing on my budget" and
-        "which categories am I over on" questions.
+        remaining, a `type` (Monarch's own income/expense/transfer), and a flag —
+        `over_budget` for expense/transfer, `favorable` for income (earning more
+        than planned is good, not overspending). `totals` is split into per-type
+        sub-blocks (expense/income/transfer/unknown), so "how much did I overspend"
+        reads off totals.expense alone — income is never mingled in. A `methodology`
+        string explains the split; surface it when discussing the numbers. All
+        figures are Monarch's own, passed through as-is.
         """
         try:
             s = datetime.date.fromisoformat(start)

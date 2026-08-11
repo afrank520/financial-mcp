@@ -560,12 +560,17 @@ class BudgetAdapter(FakeAdapter):
         from financial_mcp.monarch.models import BudgetItem
         return [
             BudgetItem(category_id="c1", budgeted=Decimal("500.00"),
-                       actual=Decimal("-620.00"), remaining=Decimal("-120.00")),
+                       actual=Decimal("-620.00"), remaining=Decimal("-120.00")),   # expense, over
+            BudgetItem(category_id="i1", budgeted=Decimal("45000.00"),
+                       actual=Decimal("45836.00"), remaining=Decimal("-836.00")),  # income, favorable
         ]
 
     def get_categories(self):
         from financial_mcp.monarch.models import Category
-        return [Category(id="c1", name="Groceries", group="Food & Dining")]
+        return [
+            Category(id="c1", name="Groceries", group="Food & Dining", group_type="expense"),
+            Category(id="i1", name="Paychecks", group="Income", group_type="income"),
+        ]
 
 
 def _budget_service(tmp_path):
@@ -578,12 +583,21 @@ def test_budget_status_envelope_and_flags(tmp_path):
     result = _tool(server, "budget_status")(start="2026-06-01", end="2026-06-30")
     assert set(result) >= {"as_of", "age_hours", "stale", "count", "data"}
     data = result["data"]
+    # totals split by Monarch type; stringified Decimals (proves _jsonify recursed)
+    assert set(data["totals"]) <= {"expense", "income", "transfer", "unknown"}
+    assert data["totals"]["expense"]["remaining"] == "-120.00"
+    assert data["totals"]["expense"]["over_budget"] is True
+    assert isinstance(data["totals"]["expense"]["budgeted"], str)
+    # income bucket uses favorable, never over_budget
+    assert data["totals"]["income"]["favorable"] is True
+    assert "over_budget" not in data["totals"]["income"]
+    # expense row keeps over_budget; income row uses favorable
     groc = next(r for r in data["categories"] if r["category"] == "Groceries")
-    assert groc["group"] == "Food & Dining"
-    assert groc["budgeted"] == "500.00"          # stringified Decimal
-    assert groc["over_budget"] is True
-    assert data["totals"]["remaining"] == "-120.00"
-    assert data["totals"]["over_budget"] is True
+    assert groc["type"] == "expense" and groc["over_budget"] is True
+    pay = next(r for r in data["categories"] if r["category"] == "Paychecks")
+    assert pay["type"] == "income" and "over_budget" not in pay and pay["favorable"] is True
+    # methodology travels with the result
+    assert data["methodology"].startswith("Totals are split by Monarch's own")
 
 
 def test_budget_status_bad_date(tmp_path):
