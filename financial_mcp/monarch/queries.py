@@ -198,7 +198,7 @@ GET_AGGREGATE_SNAPSHOTS = """
 """
 
 GET_BUDGETS = """
-  query GetJointPlanningData($startDate: Date!, $endDate: Date!, $useLegacyGoals: Boolean!, $useV2Goals: Boolean!) {
+  query GetJointPlanningData($startDate: Date!, $endDate: Date!) {
     budgetData(startMonth: $startDate, endMonth: $endDate) {
       monthlyAmountsByCategory {
         category { id __typename }

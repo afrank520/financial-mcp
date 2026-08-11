@@ -260,8 +260,6 @@ class CommunityAdapter(MonarchAdapter):
         variables = {
             "startDate": start.isoformat(),
             "endDate": end.isoformat(),
-            "useLegacyGoals": False,
-            "useV2Goals": True,
         }
         data = self._run(self._transport("GetJointPlanningData", GET_BUDGETS, variables))
         rows = (data.get("budgetData") or {}).get("monthlyAmountsByCategory") or []

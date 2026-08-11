@@ -487,6 +487,11 @@ def test_get_budgets_maps_planned_actual_remaining():
         assert operation == "GetJointPlanningData"
         assert variables["startDate"] == "2026-06-01"
         assert variables["endDate"] == "2026-06-30"
+        # Regression: GraphQL rejects a query that declares a variable its body
+        # never uses (HTTP 400 "line 2, column 66"). We stripped the goals
+        # sections, so the goals flags must not be declared or sent.
+        assert set(variables) == {"startDate", "endDate"}
+        assert "useLegacyGoals" not in query and "useV2Goals" not in query
         return {"budgetData": {"monthlyAmountsByCategory": [
             {"category": {"id": "c1"}, "monthlyAmounts": [
                 {"month": "2026-06-01", "plannedCashFlowAmount": 500.00,
