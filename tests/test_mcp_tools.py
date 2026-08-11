@@ -662,3 +662,37 @@ def test_holdings_summary_tool_envelope_and_totals(tmp_path):
     assert isinstance(body["positions"][0]["value"], str)
     assert body["positions"][1]["gain_loss"] is None      # basis-less, key present, null
     assert "methodology" in body
+
+
+def test_recurring_summary_tool_envelope(tmp_path):
+    from financial_mcp.monarch.models import RecurringItem
+
+    class _RAdapter(FakeAdapter):
+        def get_recurring(self, start, end):
+            return [
+                RecurringItem(date=datetime.date(2026, 6, 20), merchant="Spotify",
+                              amount=Decimal("-9.99"), frequency="monthly",
+                              account="Card", category="Subs", is_past=False),
+                RecurringItem(date=datetime.date(2026, 6, 3), merchant="Netflix",
+                              amount=Decimal("-15.99"), frequency="monthly",
+                              account="Card", category="Subs", is_past=True),
+            ]
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(_RAdapter(), cache)
+    server = build_server(svc)
+    data = _tool(server, "recurring_summary")("2026-06-01", "2026-06-30")
+    assert data["count"] == 2
+    body = data["data"]
+    assert [i["merchant"] for i in body["items"]] == ["Netflix", "Spotify"]  # date asc
+    assert body["total_expected"] == "-25.98"        # Decimal -> string
+    assert isinstance(body["items"][0]["amount"], str)
+    assert "methodology" in body
+
+
+def test_recurring_summary_tool_rejects_bad_dates(tmp_path):
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(FakeAdapter(), cache)
+    server = build_server(svc)
+    assert _tool(server, "recurring_summary")("nope", "2026-06-30") == {"error": "start must be YYYY-MM-DD"}
+    assert _tool(server, "recurring_summary")("2026-06-30", "2026-06-01")["error"] == "start must not be after end"

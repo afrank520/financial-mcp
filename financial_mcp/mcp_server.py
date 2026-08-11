@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from mcp.server.fastmcp import FastMCP
 
-from financial_mcp.analytics import balances, budgets, holdings, networth, savings, spending
+from financial_mcp.analytics import balances, budgets, holdings, networth, recurring, savings, spending
 from financial_mcp.data_service import DataService
 from financial_mcp.monarch.community_adapter import CloudflareBlockedError, SessionExpiredError
 
@@ -356,6 +356,38 @@ def build_server(svc: DataService) -> FastMCP:
         def _run():
             data = holdings.holdings_summary(svc.holdings())
             return _envelope("holdings", _jsonify([data])[0], count=len(data["positions"]))
+        return _guard(_run)
+
+    @server.tool()
+    def recurring_summary(start: str, end: str) -> dict:
+        """Upcoming/past recurring (subscription) items in a window (YYYY-MM-DD, inclusive).
+
+        Returns an envelope whose data has `window`, `items` (one per recurring
+        instance: date, merchant, amount, frequency, account, category, is_past),
+        a `total_expected` (plain sum of the window's item amounts — Monarch's own
+        signed amounts, NOT a normalized monthly figure), and a `methodology`
+        string. Amounts and frequencies are Monarch's own; nothing is normalized
+        or invented. Items are date-ascending (what is hitting next). Fetched live
+        each call. Use this for "what subscriptions/recurring charges are coming
+        up" and "how much of my month is already committed" questions.
+        """
+        try:
+            s = datetime.date.fromisoformat(start)
+        except ValueError:
+            return {"error": "start must be YYYY-MM-DD"}
+        try:
+            e = datetime.date.fromisoformat(end)
+        except ValueError:
+            return {"error": "end must be YYYY-MM-DD"}
+        if s > e:
+            return {"error": "start must not be after end"}
+
+        def _run():
+            data = recurring.recurring_summary(svc.recurring(s, e), s, e)
+            # Uncached live pull; borrow the `transactions` cache type's freshness
+            # for the envelope (its natural cached sibling), matching how
+            # spending_summary/budget_status report freshness for uncached tools.
+            return _envelope("transactions", _jsonify([data])[0], count=len(data["items"]))
         return _guard(_run)
 
     @server.tool()

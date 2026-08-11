@@ -16,6 +16,7 @@ from financial_mcp.monarch.models import (
     Category,
     Holding,
     NetWorthSnapshot,
+    RecurringItem,
     Transaction,
 )
 
@@ -75,6 +76,10 @@ class DataService:
     def budgets(self, start: datetime.date, end: datetime.date) -> list[BudgetItem]:
         # Never cached — window-parameterized, mirrors cashflow.
         return self._adapter.get_budgets(start, end)
+
+    def recurring(self, start: datetime.date, end: datetime.date) -> list[RecurringItem]:
+        # Never cached — window-parameterized, mirrors cashflow/budgets.
+        return self._adapter.get_recurring(start, end)
 
     def refresh(self, data_type: str | None = None) -> None:
         types = [data_type] if data_type else [
