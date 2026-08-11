@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from mcp.server.fastmcp import FastMCP
 
-from financial_mcp.analytics import balances, savings, spending
+from financial_mcp.analytics import balances, networth, savings, spending
 from financial_mcp.data_service import DataService
 from financial_mcp.monarch.community_adapter import CloudflareBlockedError, SessionExpiredError
 
@@ -274,6 +274,34 @@ def build_server(svc: DataService) -> FastMCP:
             delta_rows = balances.balance_delta(svc.balance_history(), s, e)
             data = savings.summarize(cashflow, delta_rows)
             return _envelope("balance_history", _jsonify([data])[0], count=1)
+
+        return _guard(_run)
+
+    @server.tool()
+    def networth_trend(start: str, end: str) -> dict:
+        """Net worth at the start and end of a window (YYYY-MM-DD, inclusive) plus the change.
+
+        Returns Monarch's own net-worth series: start_point, end_point, a
+        server-computed change (end - start), and every monthly point in the
+        window. This is net worth only (assets minus liabilities as one number);
+        for WHY it changed (which accounts moved), use balance_delta or
+        savings_summary. Use this for "how has my net worth changed" and
+        glide-path questions.
+        """
+        try:
+            s = datetime.date.fromisoformat(start)
+        except ValueError:
+            return {"error": "start must be YYYY-MM-DD"}
+        try:
+            e = datetime.date.fromisoformat(end)
+        except ValueError:
+            return {"error": "end must be YYYY-MM-DD"}
+        if s > e:
+            return {"error": "start must not be after end"}
+
+        def _run():
+            data = networth.networth_trend(svc.networth_history(), s, e)
+            return _envelope("networth", _jsonify([data])[0], count=len(data["points"]))
 
         return _guard(_run)
 

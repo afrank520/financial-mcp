@@ -7,7 +7,14 @@ from typing import TypeVar
 
 from financial_mcp.cache.sqlite_cache import SqliteCache
 from financial_mcp.monarch.adapter import MonarchAdapter
-from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Cashflow, Transaction
+from financial_mcp.monarch.models import (
+    Account,
+    Balance,
+    BalanceSnapshot,
+    Cashflow,
+    NetWorthSnapshot,
+    Transaction,
+)
 
 T = TypeVar("T", Account, Balance, BalanceSnapshot, Transaction)
 
@@ -49,13 +56,16 @@ class DataService:
     def balance_history(self) -> list[BalanceSnapshot]:
         return self._get("balance_history", self._adapter.get_balance_history, BalanceSnapshot)
 
+    def networth_history(self) -> list[NetWorthSnapshot]:
+        return self._get("networth", self._adapter.get_networth_history, NetWorthSnapshot)
+
     def cashflow(self, start: datetime.date, end: datetime.date) -> Cashflow:
         # Never cached — one lightweight window-parameterized live call.
         return self._adapter.get_cashflow(start, end)
 
     def refresh(self, data_type: str | None = None) -> None:
         types = [data_type] if data_type else [
-            "transactions", "balances", "accounts", "balance_history"
+            "transactions", "balances", "accounts", "balance_history", "networth"
         ]
         for t in types:
             self._cache.invalidate(t)
@@ -68,6 +78,8 @@ class DataService:
                 self.accounts()
             elif t == "balance_history":
                 self.balance_history()
+            elif t == "networth":
+                self.networth_history()
 
     def freshness(self, data_type: str) -> dict:
         """Freshness metadata (as_of, age_seconds, fresh) for one data type."""

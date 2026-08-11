@@ -251,3 +251,26 @@ def test_stale_fallback_reraises_on_schema_version_mismatch_instead_of_crashing(
         assert False, "expected RuntimeError to propagate, not a crash on stale reconstruction"
     except RuntimeError as e:
         assert "monarch down" in str(e)
+
+
+def test_networth_history_is_cached(tmp_path):
+    from financial_mcp.monarch.models import NetWorthSnapshot
+
+    class _NWAdapter(_StubAdapter):
+        def __init__(self):
+            super().__init__([])
+            self.nw_calls = 0
+
+        def get_networth_history(self):
+            self.nw_calls += 1
+            return [NetWorthSnapshot(date=datetime.date(2026, 6, 30),
+                                     net_worth=Decimal("1300000.00"))]
+
+    adapter = _NWAdapter()
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(adapter, cache)
+    first = svc.networth_history()
+    second = svc.networth_history()
+    assert first == second
+    assert adapter.nw_calls == 1                       # served from cache
+    assert second[0].net_worth == Decimal("1300000.00")  # Decimal survives round-trip

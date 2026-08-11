@@ -6,7 +6,14 @@ from financial_mcp.config import CacheTTLs
 from financial_mcp.data_service import DataService
 from financial_mcp.mcp_server import build_server
 from financial_mcp.monarch.adapter import MonarchAdapter
-from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Cashflow, Transaction
+from financial_mcp.monarch.models import (
+    Account,
+    Balance,
+    BalanceSnapshot,
+    Cashflow,
+    NetWorthSnapshot,
+    Transaction,
+)
 
 
 class FakeAdapter(MonarchAdapter):
@@ -504,3 +511,41 @@ def test_savings_summary_error_on_expired_session(tmp_path):
     server = build_server(DataService(ExpiredAdapter(), cache))
     result = _tool(server, "savings_summary")(start="2026-06-01", end="2026-06-30")
     assert "financial-mcp-login" in result["error"]
+
+
+class NetWorthAdapter(FakeAdapter):
+    def get_networth_history(self):
+        return [
+            NetWorthSnapshot(date=datetime.date(2026, 1, 31), net_worth=Decimal("1250000.00")),
+            NetWorthSnapshot(date=datetime.date(2026, 6, 30), net_worth=Decimal("1300000.00")),
+        ]
+
+
+def _nw_service(tmp_path):
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    return DataService(NetWorthAdapter(), cache)
+
+
+def test_networth_trend_envelope_and_change(tmp_path):
+    server = build_server(_nw_service(tmp_path))
+    result = _tool(server, "networth_trend")(start="2026-01-01", end="2026-06-30")
+    assert set(result) >= {"as_of", "age_hours", "stale", "count", "data"}
+    data = result["data"]
+    assert data["start_point"]["net_worth"] == "1250000.00"   # stringified
+    assert data["end_point"]["net_worth"] == "1300000.00"
+    assert data["change"]["net_worth"] == "50000.00"
+    assert result["count"] == 2
+
+
+def test_networth_trend_bad_date(tmp_path):
+    server = build_server(_nw_service(tmp_path))
+    assert _tool(server, "networth_trend")(start="Jan 1", end="2026-06-30") == {
+        "error": "start must be YYYY-MM-DD"
+    }
+
+
+def test_networth_trend_start_after_end(tmp_path):
+    server = build_server(_nw_service(tmp_path))
+    assert _tool(server, "networth_trend")(start="2026-06-30", end="2026-01-01") == {
+        "error": "start must not be after end"
+    }
