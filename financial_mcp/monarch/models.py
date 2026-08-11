@@ -66,6 +66,7 @@ class Category(BaseModel):
     id: str
     name: str
     group: str | None = None
+    group_type: str | None = None   # Monarch's own: "income" | "expense" | "transfer"
 
 
 class BudgetItem(BaseModel):

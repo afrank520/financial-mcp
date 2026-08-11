@@ -252,6 +252,7 @@ class CommunityAdapter(MonarchAdapter):
                 id=c["id"],
                 name=c["name"],
                 group=(c.get("group") or {}).get("name"),
+                group_type=(c.get("group") or {}).get("type"),
             )
             for c in data.get("categories") or []
         ]
