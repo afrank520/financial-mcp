@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from mcp.server.fastmcp import FastMCP
 
-from financial_mcp.analytics import balances, budgets, networth, savings, spending
+from financial_mcp.analytics import balances, budgets, holdings, networth, savings, spending
 from financial_mcp.data_service import DataService
 from financial_mcp.monarch.community_adapter import CloudflareBlockedError, SessionExpiredError
 
@@ -340,6 +340,25 @@ def build_server(svc: DataService) -> FastMCP:
         return _guard(_run)
 
     @server.tool()
+    def holdings_summary() -> dict:
+        """Current investment holdings: each position plus portfolio totals.
+
+        Returns an envelope whose data has `positions` (one per holding:
+        account, ticker, name, quantity, price, value, cost_basis, gain_loss,
+        day_change_dollars, day_change_percent), `totals` (portfolio value,
+        cost_basis, gain_loss), and a `methodology` string. gain_loss is
+        value − cost_basis (Monarch's own numbers) and is null when Monarch has
+        no cost basis for a position; such positions count toward total value
+        but not toward total cost_basis/gain_loss. All figures are Monarch's
+        own — no returns %, allocation %, or other derived ratios. Positions are
+        largest-value first. Surface the methodology when discussing the numbers.
+        """
+        def _run():
+            data = holdings.holdings_summary(svc.holdings())
+            return _envelope("holdings", _jsonify([data])[0], count=len(data["positions"]))
+        return _guard(_run)
+
+    @server.tool()
     def cache_status() -> list[dict]:
         """Per-type cache freshness, age, source, and record count.
 
@@ -356,7 +375,7 @@ def build_server(svc: DataService) -> FastMCP:
         (recategorized transactions, added or edited an account, updated a
         budget), or explicitly wants the very latest data instead of the cached
         copy. data_type is one of: transactions, balances, accounts,
-        balance_history, networth, categories.
+        balance_history, networth, categories, holdings.
         """
         svc.refresh(data_type)
         return {"refreshed": data_type or "all"}

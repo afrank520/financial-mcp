@@ -631,3 +631,34 @@ def test_budget_status_error_on_expired_session(tmp_path):
     server = build_server(DataService(ExpiredAdapter(), cache))
     result = _tool(server, "budget_status")(start="2026-06-01", end="2026-06-30")
     assert "financial-mcp-login" in result["error"]
+
+
+def test_holdings_summary_tool_envelope_and_totals(tmp_path):
+    from financial_mcp.monarch.models import Holding
+
+    class _HAdapter(FakeAdapter):
+        def get_holdings(self):
+            return [
+                Holding(account="Brokerage", ticker="VTI", name="VTI",
+                        quantity=Decimal("2"), price=Decimal("100"), value=Decimal("200"),
+                        cost_basis=Decimal("150"),
+                        day_change_dollars=Decimal("3"), day_change_percent=Decimal("1.5")),
+                Holding(account="IRA", ticker=None, name="Manual",
+                        quantity=Decimal("1"), price=Decimal("50"), value=Decimal("50"),
+                        cost_basis=None),
+            ]
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(_HAdapter(), cache)
+    server = build_server(svc)
+    data = _tool(server, "holdings_summary")()
+    assert data["count"] == 2
+    body = data["data"]
+    assert body["positions"][0]["ticker"] == "VTI"        # biggest value first
+    # Decimals arrive as strings
+    assert body["totals"]["value"] == "250"
+    assert body["totals"]["cost_basis"] == "150"
+    assert body["totals"]["gain_loss"] == "50"
+    assert isinstance(body["positions"][0]["value"], str)
+    assert body["positions"][1]["gain_loss"] is None      # basis-less, key present, null
+    assert "methodology" in body

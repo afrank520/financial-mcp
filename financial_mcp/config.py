@@ -13,7 +13,7 @@ class CacheTTLs(BaseModel):
     transactions: int = 12 * HOUR
     balances: int = 12 * HOUR
     investments: int = 12 * HOUR
-    holdings: int = 12 * HOUR
+    holdings: int = 1 * HOUR
     budgets: int = DAY
     networth: int = DAY
     cashflow: int = DAY
