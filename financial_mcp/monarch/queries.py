@@ -226,3 +226,59 @@ GET_CATEGORIES = """
     }
   }
 """
+
+GET_HOLDINGS = """
+  query Web_GetHoldings($input: PortfolioInput) {
+    portfolio(input: $input) {
+      aggregateHoldings {
+        edges {
+          node {
+            id
+            quantity
+            basis
+            totalValue
+            securityPriceChangeDollars
+            securityPriceChangePercent
+            security {
+              id
+              name
+              type
+              ticker
+              typeDisplay
+              currentPrice
+              closingPrice
+              __typename
+            }
+            __typename
+          }
+          __typename
+        }
+        __typename
+      }
+      __typename
+    }
+  }
+"""
+
+GET_RECURRING = """
+  query Web_GetUpcomingRecurringTransactionItems($startDate: Date!, $endDate: Date!, $filters: RecurringTransactionFilter) {
+    recurringTransactionItems(startDate: $startDate, endDate: $endDate, filters: $filters) {
+      stream {
+        id
+        frequency
+        amount
+        isApproximate
+        merchant { id name __typename }
+        __typename
+      }
+      date
+      isPast
+      transactionId
+      amount
+      amountDiff
+      category { id name __typename }
+      account { id displayName __typename }
+      __typename
+    }
+  }
+"""

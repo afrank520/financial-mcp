@@ -512,3 +512,16 @@ def test_get_budgets_maps_planned_actual_remaining():
     assert out[0].budgeted == Decimal("500.00")
     assert out[0].actual == Decimal("-620.00")
     assert out[0].remaining == Decimal("-120.00")
+
+
+def test_holdings_and_recurring_query_constants_present():
+    from financial_mcp.monarch import queries
+    assert "Web_GetHoldings" in queries.GET_HOLDINGS
+    assert "totalValue" in queries.GET_HOLDINGS
+    assert "basis" in queries.GET_HOLDINGS
+    assert "ticker" in queries.GET_HOLDINGS
+    assert "Web_GetUpcomingRecurringTransactionItems" in queries.GET_RECURRING
+    assert "recurringTransactionItems" in queries.GET_RECURRING
+    assert "frequency" in queries.GET_RECURRING
+    # $filters is USED in the body (not the GET_BUDGETS unused-variable case)
+    assert "filters: $filters" in queries.GET_RECURRING
