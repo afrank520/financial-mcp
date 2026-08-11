@@ -355,29 +355,75 @@ git commit -m "feat: split budget_status totals by Monarch category type + metho
 **Interfaces:**
 - Consumes: `budget_status` analytics (Task 3). The tool wrapper itself is unchanged in signature — only the docstring and a tool-layer shape test.
 
-- [ ] **Step 1: Write the tool-layer test**
+- [ ] **Step 1: Fix the currently-failing tool-layer test + fake, then extend coverage**
 
-In `tests/test_mcp_tools.py`, add a test that drives `budget_status` through the real `build_server` wiring with a fake that returns typed categories, and asserts the split totals + methodology survive `_jsonify` (Decimal→string). Follow the existing `budget_status` tool-test pattern in the file (the fake adapter around line 559-607). Assert:
+After Task 3, the suite has ONE red test: `tests/test_mcp_tools.py::test_budget_status_envelope_and_flags`. It asserts the OLD flat totals shape (`data["totals"]["remaining"]`, `data["totals"]["over_budget"]`) and its `BudgetAdapter` fake returns a `Category` with NO `group_type` (so the row is now `type: "unknown"`, not `expense`). Both must change.
+
+**(a) Give the fake a typed expense category AND an income category.** In `tests/test_mcp_tools.py`, update the `BudgetAdapter` (around line 558-570) so `get_budgets` returns one expense row and one income row, and `get_categories` types them:
 
 ```python
-    # data.totals has per-type sub-blocks with stringified Decimals; methodology present
-    data = result["data"]
-    assert set(data["totals"]) <= {"expense", "income", "transfer", "unknown"}
-    assert "expense" in data["totals"]
-    assert isinstance(data["totals"]["expense"]["budgeted"], str)  # _jsonify ran
-    assert data["methodology"].startswith("Totals are split by Monarch's own")
-    # income row uses favorable, not over_budget
-    inc = next((r for r in data["categories"] if r["type"] == "income"), None)
-    if inc is not None:
-        assert "favorable" in inc and "over_budget" not in inc
+class BudgetAdapter(FakeAdapter):
+    def get_budgets(self, start, end):
+        from financial_mcp.monarch.models import BudgetItem
+        return [
+            BudgetItem(category_id="c1", budgeted=Decimal("500.00"),
+                       actual=Decimal("-620.00"), remaining=Decimal("-120.00")),   # expense, over
+            BudgetItem(category_id="i1", budgeted=Decimal("45000.00"),
+                       actual=Decimal("45836.00"), remaining=Decimal("-836.00")),  # income, favorable
+        ]
+
+    def get_categories(self):
+        from financial_mcp.monarch.models import Category
+        return [
+            Category(id="c1", name="Groceries", group="Food & Dining", group_type="expense"),
+            Category(id="i1", name="Paychecks", group="Income", group_type="income"),
+        ]
 ```
 
-Match the fake's category/budget data to produce at least one expense and one income row. Reuse the existing fake-adapter scaffold; do not invent new plumbing.
+**(b) Rewrite `test_budget_status_envelope_and_flags` to the new split shape** (replace the whole test body from `data = result["data"]` onward):
 
-- [ ] **Step 2: Run it — verify it fails**
+```python
+def test_budget_status_envelope_and_flags(tmp_path):
+    server = build_server(_budget_service(tmp_path))
+    result = _tool(server, "budget_status")(start="2026-06-01", end="2026-06-30")
+    assert set(result) >= {"as_of", "age_hours", "stale", "count", "data"}
+    data = result["data"]
+    # totals split by Monarch type; stringified Decimals (proves _jsonify recursed)
+    assert set(data["totals"]) <= {"expense", "income", "transfer", "unknown"}
+    assert data["totals"]["expense"]["remaining"] == "-120.00"
+    assert data["totals"]["expense"]["over_budget"] is True
+    assert isinstance(data["totals"]["expense"]["budgeted"], str)
+    # income bucket uses favorable, never over_budget
+    assert data["totals"]["income"]["favorable"] is True
+    assert "over_budget" not in data["totals"]["income"]
+    # expense row keeps over_budget; income row uses favorable
+    groc = next(r for r in data["categories"] if r["category"] == "Groceries")
+    assert groc["type"] == "expense" and groc["over_budget"] is True
+    pay = next(r for r in data["categories"] if r["category"] == "Paychecks")
+    assert pay["type"] == "income" and "over_budget" not in pay and pay["favorable"] is True
+    # methodology travels with the result
+    assert data["methodology"].startswith("Totals are split by Monarch's own")
+```
 
-Run: `.venv/bin/python -m pytest tests/test_mcp_tools.py -k budget -v`
-Expected: the new test FAILs against the pre-Task-3 shape only if run before Task 3; after Task 3 it should pass once the docstring/test are added. (If Task 3 is already merged, this test drives the assertion that the tool layer passes the new shape through untouched.)
+**(c) Add the unrecognized-non-None group_type coverage** (closes the Task-3 review gap — the "unknown" bucket is currently only exercised via an absent id, not a real-but-unrecognized type string). Add to `tests/test_budgets_analytics.py`:
+
+```python
+def test_unrecognized_group_type_falls_into_unknown_bucket():
+    cats = [Category(id="x1", name="Odd", group="Weird", group_type="loan")]
+    items = [BudgetItem(category_id="x1", budgeted=Decimal("10.00"),
+                        actual=Decimal("-30.00"), remaining=Decimal("-20.00"))]
+    out = budgets.budget_status(items, cats, D(2026, 6, 1), D(2026, 6, 30))
+    row = out["categories"][0]
+    assert row["type"] == "unknown"          # unrecognized string, not income
+    assert row["over_budget"] is True        # literal flag, never favorable
+    assert "favorable" not in row
+    assert out["totals"]["unknown"]["remaining"] == Decimal("-20.00")
+```
+
+- [ ] **Step 2: Run it — verify the red test now passes and coverage is added**
+
+Run: `.venv/bin/python -m pytest tests/test_mcp_tools.py -k budget tests/test_budgets_analytics.py -v`
+Expected: all pass (the previously-red `test_budget_status_envelope_and_flags` is green under the new shape; the new unrecognized-type test passes).
 
 - [ ] **Step 3: Update the tool docstring**
 
@@ -411,7 +457,7 @@ Expected: all pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add financial_mcp/mcp_server.py tests/test_mcp_tools.py
+git add financial_mcp/mcp_server.py tests/test_mcp_tools.py tests/test_budgets_analytics.py
 git commit -m "feat: budget_status tool docstring for type split + tool-layer shape test"
 ```
 
