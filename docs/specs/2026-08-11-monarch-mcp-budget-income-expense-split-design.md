@@ -1,7 +1,7 @@
 # Monarch MCP — budget_status income/expense/transfer split (design)
 
 **Date:** 2026-08-11
-**Status:** Draft (design lock pending user review).
+**Status:** ✅ Shipped + live-proven (2026-08-11). See §4 live-verification results.
 **Roadmap slot:** Follow-up to the shipped Tier 1 breadth spec (`2026-08-10-monarch-mcp-tier1-breadth-design.md`, §8 logged this as the known boundary). Closes the "can the data be trusted" gap surfaced during that spec's live verification.
 
 ---
@@ -125,6 +125,14 @@ The freshness envelope wrapping `data` is unchanged. `_jsonify` already stringif
   - `methodology` string present and byte-exact (locked in the plan).
 - **Tool layer:** envelope shape unchanged; `data.totals` exposes the per-type sub-blocks; new fields survive `_jsonify` Decimal→string transport.
 - **Live accuracy check (interactive, at build):** re-run June 2026 in Claude Desktop — income rows (Paychecks, Interest) land in the income bucket flagged `favorable`; expenses in the expense bucket; "how much did I overspend" reads cleanly off `totals.expense`. Recorded in this spec on ship.
+
+### Live-verification results (2026-08-11, real org, Claude Desktop) — PASSED
+Ran `refresh_cache("categories")` then `budget_status` for June 2026 (2026-06-01 → 2026-06-30):
+- **Income block, separated + `favorable`:** budgeted $44,510 / actual $45,403.37 → favorable by ~$893. Paychecks ($35,836.31) and Interest ($85.49) both landed in `totals.income` flagged favorable; Syosset Medical Buyback ($9,481.57, slightly under plan) correctly NOT flagged favorable. Income never mingled into the expense total.
+- **Expense block, pure expense:** budgeted $27,281 / actual $34,048.07 → over by **$6,767.07**. This is the number the "how much did I overspend" narration now reads cleanly, with zero income contamination — the trust gap this spec set out to close.
+- **Transfer block:** $189.66 actual vs $0 budgeted, shown for completeness (internal movement, not real overspend).
+- **`unknown` bucket: empty (the enum probe).** All 107 categories carried a valid `income`/`expense`/`transfer` type, so no `unknown` sub-block appeared at all. This confirms Monarch's real `group.type` enum strings match the reference-lib assumption — the reason Task 1's live probe was safely collapsed into this step.
+- **Methodology string** surfaced on the result as designed, so the narration could attribute the split to Monarch's own category type rather than inference.
 
 ---
 
