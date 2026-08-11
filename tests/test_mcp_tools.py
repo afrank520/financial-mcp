@@ -63,6 +63,12 @@ class FakeAdapter(MonarchAdapter):
     def get_budgets(self, start, end):
         return []
 
+    def get_holdings(self):
+        return []
+
+    def get_recurring(self, start, end):
+        return []
+
     def source_name(self):
         return "fake"
 

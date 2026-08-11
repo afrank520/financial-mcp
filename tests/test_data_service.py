@@ -71,6 +71,12 @@ class FakeAdapter(MonarchAdapter):
     def get_budgets(self, start, end):
         return []
 
+    def get_holdings(self):
+        return []
+
+    def get_recurring(self, start, end):
+        return []
+
     def source_name(self):
         return "fake"
 
@@ -159,6 +165,8 @@ class _StubAdapter(MonarchAdapter):
     def get_networth_history(self): return []
     def get_categories(self): return []
     def get_budgets(self, start, end): return []
+    def get_holdings(self): return []
+    def get_recurring(self, start, end): return []
 
 
 def test_balance_history_is_served_and_cached(tmp_path):
