@@ -353,7 +353,7 @@ def build_server(svc: DataService) -> FastMCP:
         (recategorized transactions, added or edited an account, updated a
         budget), or explicitly wants the very latest data instead of the cached
         copy. data_type is one of: transactions, balances, accounts,
-        balance_history.
+        balance_history, networth, categories.
         """
         svc.refresh(data_type)
         return {"refreshed": data_type or "all"}
