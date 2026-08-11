@@ -470,16 +470,22 @@ def test_get_networth_history_maps_snapshots():
 def test_get_categories_maps_group():
     async def stub(operation, query, variables):
         assert operation == "GetCategories"
+        assert "type" in query  # group.type must be requested
         return {"categories": [
-            {"id": "c1", "name": "Groceries", "group": {"id": "g1", "name": "Food & Dining"}},
+            {"id": "c1", "name": "Groceries",
+             "group": {"id": "g1", "name": "Food & Dining", "type": "expense"}},
             {"id": "c2", "name": "Mystery", "group": None},
+            {"id": "c3", "name": "Paychecks",
+             "group": {"id": "g2", "name": "Income", "type": "income"}},
         ]}
 
     adapter = CommunityAdapter(SESSION, transport=stub)
     out = {c.id: c for c in adapter.get_categories()}
-    assert out["c1"].name == "Groceries"
     assert out["c1"].group == "Food & Dining"
-    assert out["c2"].group is None      # missing group block -> None, no crash
+    assert out["c1"].group_type == "expense"
+    assert out["c2"].group is None
+    assert out["c2"].group_type is None
+    assert out["c3"].group_type == "income"
 
 
 def test_get_budgets_maps_planned_actual_remaining():

@@ -221,7 +221,7 @@ GET_CATEGORIES = """
     categories {
       id
       name
-      group { id name __typename }
+      group { id name type __typename }
       __typename
     }
   }
