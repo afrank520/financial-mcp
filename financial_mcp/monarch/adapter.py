@@ -3,7 +3,9 @@ from __future__ import annotations
 import abc
 import datetime
 
-from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Cashflow, Transaction
+from financial_mcp.monarch.models import (
+    Account, Balance, BalanceSnapshot, BudgetItem, Cashflow, Category, NetWorthSnapshot, Transaction,
+)
 
 
 class MonarchAdapter(abc.ABC):
@@ -24,6 +26,15 @@ class MonarchAdapter(abc.ABC):
 
     @abc.abstractmethod
     def get_cashflow(self, start: datetime.date, end: datetime.date) -> Cashflow: ...
+
+    @abc.abstractmethod
+    def get_networth_history(self) -> list[NetWorthSnapshot]: ...
+
+    @abc.abstractmethod
+    def get_categories(self) -> list[Category]: ...
+
+    @abc.abstractmethod
+    def get_budgets(self, start: datetime.date, end: datetime.date) -> list[BudgetItem]: ...
 
     @abc.abstractmethod
     def source_name(self) -> str: ...

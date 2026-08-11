@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from mcp.server.fastmcp import FastMCP
 
-from financial_mcp.analytics import balances, savings, spending
+from financial_mcp.analytics import balances, budgets, networth, savings, spending
 from financial_mcp.data_service import DataService
 from financial_mcp.monarch.community_adapter import CloudflareBlockedError, SessionExpiredError
 
@@ -121,16 +121,20 @@ def build_server(svc: DataService) -> FastMCP:
 
     @server.tool()
     def category_summary() -> dict:
-        """Net total and count per category, biggest net spend first.
+        """Net total and count per category AND per Monarch category group.
 
-        Returns an envelope with freshness metadata (as_of, age_hours, stale).
-        This is the accurate all-time total across every transaction.
+        Returns an envelope whose data has `categories` (one row per category
+        with its group) and `groups` (group-level subtotals, e.g. Food & Dining =
+        Groceries + Restaurants). Categories with no group match roll into
+        "Uncategorized". This is the accurate all-time total across every
+        transaction. Freshness metadata (as_of, age_hours, stale) is included.
         """
-        return _guard(
-            lambda: _envelope(
-                "transactions", _jsonify(spending.category_summary(svc.transactions()))
-            )
-        )
+
+        def _run():
+            data = spending.category_summary(svc.transactions(), svc.categories())
+            return _envelope("transactions", _jsonify([data])[0], count=len(data["categories"]))
+
+        return _guard(_run)
 
     @server.tool()
     def merchant_summary() -> dict:
@@ -278,6 +282,61 @@ def build_server(svc: DataService) -> FastMCP:
         return _guard(_run)
 
     @server.tool()
+    def networth_trend(start: str, end: str) -> dict:
+        """Net worth at the start and end of a window (YYYY-MM-DD, inclusive) plus the change.
+
+        Returns Monarch's own net-worth series: start_point, end_point, a
+        server-computed change (end - start), and every monthly point in the
+        window. This is net worth only (assets minus liabilities as one number);
+        for WHY it changed (which accounts moved), use balance_delta or
+        savings_summary. Use this for "how has my net worth changed" and
+        glide-path questions.
+        """
+        try:
+            s = datetime.date.fromisoformat(start)
+        except ValueError:
+            return {"error": "start must be YYYY-MM-DD"}
+        try:
+            e = datetime.date.fromisoformat(end)
+        except ValueError:
+            return {"error": "end must be YYYY-MM-DD"}
+        if s > e:
+            return {"error": "start must not be after end"}
+
+        def _run():
+            data = networth.networth_trend(svc.networth_history(), s, e)
+            return _envelope("networth", _jsonify([data])[0], count=len(data["points"]))
+
+        return _guard(_run)
+
+    @server.tool()
+    def budget_status(start: str, end: str) -> dict:
+        """Per-category budgeted vs. actual for a month window (YYYY-MM-DD, inclusive).
+
+        The red/green scorecard: each budgeted category with budgeted, actual,
+        remaining, and an over_budget flag (worst-over-budget first), plus a
+        rolled-up totals block. The numbers are Monarch's own budget figures,
+        passed through as-is. Use this for "how am I doing on my budget" and
+        "which categories am I over on" questions.
+        """
+        try:
+            s = datetime.date.fromisoformat(start)
+        except ValueError:
+            return {"error": "start must be YYYY-MM-DD"}
+        try:
+            e = datetime.date.fromisoformat(end)
+        except ValueError:
+            return {"error": "end must be YYYY-MM-DD"}
+        if s > e:
+            return {"error": "start must not be after end"}
+
+        def _run():
+            data = budgets.budget_status(svc.budgets(s, e), svc.categories(), s, e)
+            return _envelope("categories", _jsonify([data])[0], count=len(data["categories"]))
+
+        return _guard(_run)
+
+    @server.tool()
     def cache_status() -> list[dict]:
         """Per-type cache freshness, age, source, and record count.
 
@@ -294,7 +353,7 @@ def build_server(svc: DataService) -> FastMCP:
         (recategorized transactions, added or edited an account, updated a
         budget), or explicitly wants the very latest data instead of the cached
         copy. data_type is one of: transactions, balances, accounts,
-        balance_history.
+        balance_history, networth, categories.
         """
         svc.refresh(data_type)
         return {"refreshed": data_type or "all"}

@@ -10,12 +10,17 @@ from decimal import Decimal
 
 from financial_mcp.monarch import auth
 from financial_mcp.monarch.adapter import MonarchAdapter
-from financial_mcp.monarch.models import Account, Balance, BalanceSnapshot, Cashflow, Transaction
+from financial_mcp.monarch.models import (
+    Account, Balance, BalanceSnapshot, BudgetItem, Cashflow, Category, NetWorthSnapshot, Transaction,
+)
 from financial_mcp.monarch.queries import (
     GET_ACCOUNT_SNAPSHOTS,
     GET_ACCOUNTS,
     GET_ACCOUNTS_MIN,
+    GET_AGGREGATE_SNAPSHOTS,
+    GET_BUDGETS,
     GET_CASHFLOW_SUMMARY,
+    GET_CATEGORIES,
     GET_TRANSACTIONS,
 )
 
@@ -222,3 +227,53 @@ class CommunityAdapter(MonarchAdapter):
             savings=Decimal(str(summary["savings"])),
             savings_rate_monarch=Decimal(str(summary["savingsRate"])),
         )
+
+    def get_networth_history(self) -> list[NetWorthSnapshot]:
+        # Fetch the full series (no window); callers window in the analytics layer,
+        # mirroring get_balance_history. startDate/endDate omitted -> Monarch's full range.
+        variables = {"filters": {"startDate": None, "endDate": None, "accountType": None}}
+        data = self._run(
+            self._transport("GetAggregateSnapshots", GET_AGGREGATE_SNAPSHOTS, variables)
+        )
+        out = [
+            NetWorthSnapshot(
+                date=datetime.date.fromisoformat(p["date"]),
+                net_worth=Decimal(str(p["balance"])),
+            )
+            for p in data.get("aggregateSnapshots") or []
+        ]
+        out.sort(key=lambda s: s.date)
+        return out
+
+    def get_categories(self) -> list[Category]:
+        data = self._run(self._transport("GetCategories", GET_CATEGORIES, {}))
+        return [
+            Category(
+                id=c["id"],
+                name=c["name"],
+                group=(c.get("group") or {}).get("name"),
+            )
+            for c in data.get("categories") or []
+        ]
+
+    def get_budgets(self, start: datetime.date, end: datetime.date) -> list[BudgetItem]:
+        variables = {
+            "startDate": start.isoformat(),
+            "endDate": end.isoformat(),
+        }
+        data = self._run(self._transport("GetJointPlanningData", GET_BUDGETS, variables))
+        rows = (data.get("budgetData") or {}).get("monthlyAmountsByCategory") or []
+        out: list[BudgetItem] = []
+        for r in rows:
+            cat_id = (r.get("category") or {}).get("id")
+            months = r.get("monthlyAmounts") or []
+            if not cat_id or not months:
+                continue
+            m = months[0]  # one month per window row
+            out.append(BudgetItem(
+                category_id=cat_id,
+                budgeted=Decimal(str(m.get("plannedCashFlowAmount") or 0)),
+                actual=Decimal(str(m.get("actualAmount") or 0)),
+                remaining=Decimal(str(m.get("remainingAmount") or 0)),
+            ))
+        return out

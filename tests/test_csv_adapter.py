@@ -2,6 +2,8 @@ import datetime
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from financial_mcp.monarch.csv_adapter import CsvAdapter
 
 FIX = Path(__file__).parent / "fixtures"
@@ -71,3 +73,23 @@ def test_csv_adapter_get_cashflow_raises():
     adapter = CsvAdapter(transactions_path="x", balances_path="y")
     with pytest.raises(RuntimeError, match="not available in CSV mode"):
         adapter.get_cashflow(datetime.date(2026, 6, 1), datetime.date(2026, 6, 30))
+
+
+def _csv_adapter():
+    return CsvAdapter("unused.csv", "unused.csv")
+
+
+def test_networth_history_not_available_in_csv():
+    with pytest.raises(RuntimeError, match="not available in CSV mode"):
+        _csv_adapter().get_networth_history()
+
+
+def test_categories_not_available_in_csv():
+    with pytest.raises(RuntimeError, match="not available in CSV mode"):
+        _csv_adapter().get_categories()
+
+
+def test_budgets_not_available_in_csv():
+    import datetime as dt
+    with pytest.raises(RuntimeError, match="not available in CSV mode"):
+        _csv_adapter().get_budgets(dt.date(2026, 6, 1), dt.date(2026, 6, 30))

@@ -4,7 +4,7 @@ import datetime
 from collections import defaultdict
 from decimal import Decimal
 
-from financial_mcp.monarch.models import Transaction
+from financial_mcp.monarch.models import Category, Transaction
 
 
 def _group_totals(txns: list[Transaction], key: str) -> list[dict]:
@@ -19,8 +19,33 @@ def _group_totals(txns: list[Transaction], key: str) -> list[dict]:
     return rows
 
 
-def category_summary(txns: list[Transaction]) -> list[dict]:
-    return _group_totals(txns, "category")
+def category_summary(txns: list[Transaction], categories: list[Category]) -> dict:
+    """Net total and count per category, enriched with each category's Monarch
+    group, plus group-level subtotals.
+
+    Categories with no matching group (from the caller-supplied `categories`
+    list) get `group: None` on their row and roll into the "Uncategorized"
+    group bucket rather than being dropped.
+    """
+    name_to_group = {c.name: c.group for c in categories}
+    base = _group_totals(txns, "category")  # [{category, total, count}], biggest net first
+
+    cat_rows: list[dict] = []
+    group_totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    group_counts: dict[str, int] = defaultdict(int)
+    for row in base:
+        group = name_to_group.get(row["category"])
+        cat_rows.append({**row, "group": group})
+        bucket = group or "Uncategorized"
+        group_totals[bucket] += row["total"]
+        group_counts[bucket] += row["count"]
+
+    groups = [
+        {"group": g, "total": group_totals[g], "count": group_counts[g]}
+        for g in group_totals
+    ]
+    groups.sort(key=lambda r: r["total"])  # biggest net spend first
+    return {"categories": cat_rows, "groups": groups}
 
 
 def merchant_summary(txns: list[Transaction]) -> list[dict]:

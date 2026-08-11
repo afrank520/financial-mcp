@@ -8,7 +8,7 @@ from financial_mcp.analytics.spending import (
     monthly_spending,
     search,
 )
-from financial_mcp.monarch.models import Transaction
+from financial_mcp.monarch.models import Category, Transaction
 
 
 def _txn(merchant, category, amount, month=1, day=1, year=2026):
@@ -36,7 +36,8 @@ TXNS = [
 
 
 def test_category_summary_sorted_biggest_spend_first():
-    rows = category_summary(TXNS)
+    out = category_summary(TXNS, [])
+    rows = out["categories"]
     assert rows[0]["category"] == "Groceries"
     assert rows[0]["total"] == Decimal("-240.50")
     assert rows[0]["count"] == 2
@@ -168,3 +169,38 @@ def test_date_range_summary_zero_amount_row_is_neither_charge_nor_refund():
     assert s["gross_charges"] == Decimal("10.00")
     assert s["refunds"] == Decimal("4.00")
     assert s["total"] == Decimal("6.00")  # 10.00 - 4.00
+
+
+def _cat_txn(category, amount):
+    d = datetime.date(2026, 1, 2)
+    return Transaction(id=Transaction.synth_id(d, "M", Decimal(amount), "M"), date=d,
+                       merchant="M", category=category, account="A", original_statement="M",
+                       notes="", amount=Decimal(amount), tags=[], owner="A")
+
+
+def _cats():
+    return [
+        Category(id="c1", name="Groceries", group="Food & Dining"),
+        Category(id="c2", name="Restaurants", group="Food & Dining"),
+    ]
+
+
+def test_category_summary_adds_group_and_rolls_up():
+    txns = [_cat_txn("Groceries", "-100.00"), _cat_txn("Restaurants", "-40.00"),
+            _cat_txn("Groceries", "-60.00")]
+    out = category_summary(txns, _cats())
+    groc = next(r for r in out["categories"] if r["category"] == "Groceries")
+    assert groc["group"] == "Food & Dining"
+    assert groc["total"] == Decimal("-160.00")
+    fd = next(g for g in out["groups"] if g["group"] == "Food & Dining")
+    assert fd["total"] == Decimal("-200.00")   # -160 groceries + -40 restaurants
+    assert fd["count"] == 3
+
+
+def test_unmatched_category_is_uncategorized_not_dropped():
+    txns = [_cat_txn("Groceries", "-100.00"), _cat_txn("Mystery Merch", "-25.00")]
+    out = category_summary(txns, _cats())
+    myst = next(r for r in out["categories"] if r["category"] == "Mystery Merch")
+    assert myst["group"] is None                       # row group null
+    unc = next(g for g in out["groups"] if g["group"] == "Uncategorized")
+    assert unc["total"] == Decimal("-25.00")           # bucketed, not dropped

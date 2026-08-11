@@ -1,7 +1,7 @@
 # Monarch MCP — Tier 1 breadth: net-worth trend + budgets + real categories (design)
 
 **Date:** 2026-08-10
-**Status:** Draft (design lock pending user review).
+**Status:** ✅ Shipped + live-proven (2026-08-10). All three tools verified in Claude Desktop against the real org — see §8.
 **Roadmap slot:** Goal #2 (bring in the full Monarch capability menu), Tier 1. First of two Tier-1 breadth specs; holdings + recurring/subscriptions are the deferred second spec. Builds on the shipped adapter → analytics → tool layering and the id-keyed balance foundation.
 
 ---
@@ -158,3 +158,17 @@ Query shapes above are drawn from the retained `monarchmoney` reference lib (the
 - **HELOC glide-path checkpoint tracking** — stands on `get_networth_history` (this spec) + the id-keyed `balance_as_of` already shipped.
 - **The `financial_context` resource** — house-rules/targets/lineage that let Claude sustain TeamFrank-level guidance on top of these honest numbers (the north star's second half).
 - **Second Tier-1 spec** — holdings + recurring/subscriptions, completing the read-only menu.
+
+---
+
+## 8. Live verification (2026-08-10, Claude Desktop, real org) — Shipped
+
+All three tools verified against the real Monarch org. 182 offline tests green.
+
+- **`networth_trend`** — penny-perfect vs the Monarch net-worth graph: end $2,122,088.91, YTD change +$499,163.10. Net worth only, as designed; the tool proactively offered `balance_delta`/`savings_summary` for the "why."
+- **`budget_status`** (June 2026) — real per-category table, `over_by = actual − budgeted` penny-exact on every spot-checked row (Capital Improvement 2,604.56; Lawn & Garden 1,386.00; Ice Hockey 1,320.00; Shopping 965.18; Mortgage 0.13).
+- **`category_summary`** — all-time net-by-group returned correctly; net signed totals behave as designed (an inflow can net a group down, e.g. Misc +81,833 nets against Camp Tuition inside "Other" — honest, not a bug).
+
+**Bug caught + fixed during verification (the deferred-Task-1 risk materialized):** `budget_status` first returned HTTP 400 ("line 2, column 66"). Root cause: `GET_BUDGETS` declared `$useLegacyGoals`/`$useV2Goals` but the slimmed query body (the `goals @include(if:…)` sections were dropped as YAGNI per §3.2) never referenced them — GraphQL rejects any operation with an unused declared variable, pointing at the first offender's column. Fixed by dropping both declarations and no longer passing them (commit `1b69705`); a regression test asserts the variable set is exactly `{startDate, endDate}` and the flags are absent from the query document. Same family as the balance-history 400 lesson: a parse-location 400 means Monarch is rejecting our query document, never connectivity.
+
+**Known boundary logged for follow-up (data is trustworthy; narration is the gap):** `budget_status`'s `totals` block sums income budget rows and expense budget rows together, so a "spent $X" narration can fold income actuals in with expenses. Every tool number is Monarch's own and correct; the mingling is the boundary. Planned fix (own spec): surface Monarch's own `group.type` (income/expense/transfer), split totals into `expense_totals` + `income_totals`, and add a `methodology` string (the `savings_summary` pattern).

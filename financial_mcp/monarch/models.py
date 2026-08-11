@@ -55,3 +55,21 @@ class Cashflow(BaseModel):
     expense: Decimal
     savings: Decimal
     savings_rate_monarch: Decimal
+
+
+class NetWorthSnapshot(BaseModel):
+    date: datetime.date
+    net_worth: Decimal
+
+
+class Category(BaseModel):
+    id: str
+    name: str
+    group: str | None = None
+
+
+class BudgetItem(BaseModel):
+    category_id: str
+    budgeted: Decimal
+    actual: Decimal
+    remaining: Decimal
