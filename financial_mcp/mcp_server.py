@@ -48,6 +48,21 @@ def build_server(svc: DataService) -> FastMCP:
             "data": data,
         }
 
+    def _live_envelope(data, count: int | None = None) -> dict:
+        """Envelope for tools that fetch live every call (no cache to age against).
+
+        Unlike _envelope, this does not read cache freshness: the data was just
+        pulled from Monarch, so as_of is now, age is zero, and it is never stale.
+        """
+        now = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
+        return {
+            "as_of": now,
+            "age_hours": 0.0,
+            "stale": False,
+            "count": len(data) if count is None else count,
+            "data": data,
+        }
+
     def _guard(fn):
         """Execute fn and convert typed auth errors to friendly re-login messages."""
         try:
@@ -384,10 +399,9 @@ def build_server(svc: DataService) -> FastMCP:
 
         def _run():
             data = recurring.recurring_summary(svc.recurring(s, e), s, e)
-            # Uncached live pull; borrow the `transactions` cache type's freshness
-            # for the envelope (its natural cached sibling), matching how
-            # spending_summary/budget_status report freshness for uncached tools.
-            return _envelope("transactions", _jsonify([data])[0], count=len(data["items"]))
+            # Pulled live from Monarch every call — report honest live freshness
+            # (as_of = now, not stale) rather than borrowing an unread cache type.
+            return _live_envelope(_jsonify([data])[0], count=len(data["items"]))
         return _guard(_run)
 
     @server.tool()

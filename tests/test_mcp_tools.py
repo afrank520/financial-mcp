@@ -690,6 +690,39 @@ def test_recurring_summary_tool_envelope(tmp_path):
     assert "methodology" in body
 
 
+def test_recurring_summary_reports_live_freshness(tmp_path):
+    """recurring_summary must report honest live freshness (as_of=now, never
+    stale), NOT the borrowed/unread `transactions` cache type's freshness.
+
+    Regression guard: the transactions cache is deliberately left unpopulated
+    (fresh SqliteCache, never call get_transactions/get_accounts). Under the
+    old buggy code, _envelope("transactions", ...) would see no cache entry
+    and return as_of=None, stale=True. The fix must return a real as_of and
+    stale=False regardless of transactions cache state.
+    """
+    from financial_mcp.monarch.models import RecurringItem
+
+    class _RAdapter(FakeAdapter):
+        def get_recurring(self, start, end):
+            return [
+                RecurringItem(date=datetime.date(2026, 6, 20), merchant="Spotify",
+                              amount=Decimal("-9.99"), frequency="monthly",
+                              account="Card", category="Subs", is_past=False),
+            ]
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(_RAdapter(), cache)
+    server = build_server(svc)
+
+    # Do NOT populate the transactions cache before calling recurring_summary.
+    data = _tool(server, "recurring_summary")("2026-06-01", "2026-06-30")
+
+    assert data["stale"] is False
+    assert data["age_hours"] == 0.0
+    assert data["as_of"] is not None
+    assert "T" in data["as_of"]
+
+
 def test_recurring_summary_tool_rejects_bad_dates(tmp_path):
     cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
     svc = DataService(FakeAdapter(), cache)
