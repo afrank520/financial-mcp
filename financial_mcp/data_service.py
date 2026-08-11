@@ -11,6 +11,7 @@ from financial_mcp.monarch.models import (
     Account,
     Balance,
     BalanceSnapshot,
+    BudgetItem,
     Cashflow,
     Category,
     NetWorthSnapshot,
@@ -66,6 +67,10 @@ class DataService:
     def cashflow(self, start: datetime.date, end: datetime.date) -> Cashflow:
         # Never cached — one lightweight window-parameterized live call.
         return self._adapter.get_cashflow(start, end)
+
+    def budgets(self, start: datetime.date, end: datetime.date) -> list[BudgetItem]:
+        # Never cached — window-parameterized, mirrors cashflow.
+        return self._adapter.get_budgets(start, end)
 
     def refresh(self, data_type: str | None = None) -> None:
         types = [data_type] if data_type else [

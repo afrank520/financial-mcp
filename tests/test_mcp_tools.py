@@ -553,3 +553,61 @@ def test_networth_trend_start_after_end(tmp_path):
     assert _tool(server, "networth_trend")(start="2026-06-30", end="2026-01-01") == {
         "error": "start must not be after end"
     }
+
+
+class BudgetAdapter(FakeAdapter):
+    def get_budgets(self, start, end):
+        from financial_mcp.monarch.models import BudgetItem
+        return [
+            BudgetItem(category_id="c1", budgeted=Decimal("500.00"),
+                       actual=Decimal("-620.00"), remaining=Decimal("-120.00")),
+        ]
+
+    def get_categories(self):
+        from financial_mcp.monarch.models import Category
+        return [Category(id="c1", name="Groceries", group="Food & Dining")]
+
+
+def _budget_service(tmp_path):
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    return DataService(BudgetAdapter(), cache)
+
+
+def test_budget_status_envelope_and_flags(tmp_path):
+    server = build_server(_budget_service(tmp_path))
+    result = _tool(server, "budget_status")(start="2026-06-01", end="2026-06-30")
+    assert set(result) >= {"as_of", "age_hours", "stale", "count", "data"}
+    data = result["data"]
+    groc = next(r for r in data["categories"] if r["category"] == "Groceries")
+    assert groc["group"] == "Food & Dining"
+    assert groc["budgeted"] == "500.00"          # stringified Decimal
+    assert groc["over_budget"] is True
+    assert data["totals"]["remaining"] == "-120.00"
+    assert data["totals"]["over_budget"] is True
+
+
+def test_budget_status_bad_date(tmp_path):
+    server = build_server(_budget_service(tmp_path))
+    assert _tool(server, "budget_status")(start="June", end="2026-06-30") == {
+        "error": "start must be YYYY-MM-DD"
+    }
+
+
+def test_budget_status_start_after_end(tmp_path):
+    server = build_server(_budget_service(tmp_path))
+    assert _tool(server, "budget_status")(start="2026-06-30", end="2026-06-01") == {
+        "error": "start must not be after end"
+    }
+
+
+def test_budget_status_error_on_expired_session(tmp_path):
+    from financial_mcp.monarch.community_adapter import SessionExpiredError
+
+    class ExpiredAdapter(BudgetAdapter):
+        def get_budgets(self, start, end):
+            raise SessionExpiredError("expired")
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    server = build_server(DataService(ExpiredAdapter(), cache))
+    result = _tool(server, "budget_status")(start="2026-06-01", end="2026-06-30")
+    assert "financial-mcp-login" in result["error"]

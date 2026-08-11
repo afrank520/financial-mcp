@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from mcp.server.fastmcp import FastMCP
 
-from financial_mcp.analytics import balances, networth, savings, spending
+from financial_mcp.analytics import balances, budgets, networth, savings, spending
 from financial_mcp.data_service import DataService
 from financial_mcp.monarch.community_adapter import CloudflareBlockedError, SessionExpiredError
 
@@ -306,6 +306,33 @@ def build_server(svc: DataService) -> FastMCP:
         def _run():
             data = networth.networth_trend(svc.networth_history(), s, e)
             return _envelope("networth", _jsonify([data])[0], count=len(data["points"]))
+
+        return _guard(_run)
+
+    @server.tool()
+    def budget_status(start: str, end: str) -> dict:
+        """Per-category budgeted vs. actual for a month window (YYYY-MM-DD, inclusive).
+
+        The red/green scorecard: each budgeted category with budgeted, actual,
+        remaining, and an over_budget flag (worst-over-budget first), plus a
+        rolled-up totals block. The numbers are Monarch's own budget figures,
+        passed through as-is. Use this for "how am I doing on my budget" and
+        "which categories am I over on" questions.
+        """
+        try:
+            s = datetime.date.fromisoformat(start)
+        except ValueError:
+            return {"error": "start must be YYYY-MM-DD"}
+        try:
+            e = datetime.date.fromisoformat(end)
+        except ValueError:
+            return {"error": "end must be YYYY-MM-DD"}
+        if s > e:
+            return {"error": "start must not be after end"}
+
+        def _run():
+            data = budgets.budget_status(svc.budgets(s, e), svc.categories(), s, e)
+            return _envelope("categories", _jsonify([data])[0], count=len(data["categories"]))
 
         return _guard(_run)
 
