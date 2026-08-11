@@ -121,16 +121,20 @@ def build_server(svc: DataService) -> FastMCP:
 
     @server.tool()
     def category_summary() -> dict:
-        """Net total and count per category, biggest net spend first.
+        """Net total and count per category AND per Monarch category group.
 
-        Returns an envelope with freshness metadata (as_of, age_hours, stale).
-        This is the accurate all-time total across every transaction.
+        Returns an envelope whose data has `categories` (one row per category
+        with its group) and `groups` (group-level subtotals, e.g. Food & Dining =
+        Groceries + Restaurants). Categories with no group match roll into
+        "Uncategorized". This is the accurate all-time total across every
+        transaction. Freshness metadata (as_of, age_hours, stale) is included.
         """
-        return _guard(
-            lambda: _envelope(
-                "transactions", _jsonify(spending.category_summary(svc.transactions()))
-            )
-        )
+
+        def _run():
+            data = spending.category_summary(svc.transactions(), svc.categories())
+            return _envelope("transactions", _jsonify([data])[0], count=len(data["categories"]))
+
+        return _guard(_run)
 
     @server.tool()
     def merchant_summary() -> dict:

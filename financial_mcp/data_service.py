@@ -12,11 +12,12 @@ from financial_mcp.monarch.models import (
     Balance,
     BalanceSnapshot,
     Cashflow,
+    Category,
     NetWorthSnapshot,
     Transaction,
 )
 
-T = TypeVar("T", Account, Balance, BalanceSnapshot, Transaction)
+T = TypeVar("T", Account, Balance, BalanceSnapshot, Transaction, NetWorthSnapshot, Category)
 
 logger = logging.getLogger("financial_mcp")
 
@@ -59,13 +60,16 @@ class DataService:
     def networth_history(self) -> list[NetWorthSnapshot]:
         return self._get("networth", self._adapter.get_networth_history, NetWorthSnapshot)
 
+    def categories(self) -> list[Category]:
+        return self._get("categories", self._adapter.get_categories, Category)
+
     def cashflow(self, start: datetime.date, end: datetime.date) -> Cashflow:
         # Never cached — one lightweight window-parameterized live call.
         return self._adapter.get_cashflow(start, end)
 
     def refresh(self, data_type: str | None = None) -> None:
         types = [data_type] if data_type else [
-            "transactions", "balances", "accounts", "balance_history", "networth"
+            "transactions", "balances", "accounts", "balance_history", "networth", "categories"
         ]
         for t in types:
             self._cache.invalidate(t)
@@ -80,6 +84,8 @@ class DataService:
                 self.balance_history()
             elif t == "networth":
                 self.networth_history()
+            elif t == "categories":
+                self.categories()
 
     def freshness(self, data_type: str) -> dict:
         """Freshness metadata (as_of, age_seconds, fresh) for one data type."""

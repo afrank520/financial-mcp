@@ -274,3 +274,22 @@ def test_networth_history_is_cached(tmp_path):
     assert first == second
     assert adapter.nw_calls == 1                       # served from cache
     assert second[0].net_worth == Decimal("1300000.00")  # Decimal survives round-trip
+
+
+def test_categories_is_cached(tmp_path):
+    from financial_mcp.monarch.models import Category
+
+    class _CatAdapter(_StubAdapter):
+        def __init__(self):
+            super().__init__([])
+            self.cat_calls = 0
+
+        def get_categories(self):
+            self.cat_calls += 1
+            return [Category(id="c1", name="Groceries", group="Food & Dining")]
+
+    adapter = _CatAdapter()
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(adapter, cache)
+    assert svc.categories() == svc.categories()
+    assert adapter.cat_calls == 1

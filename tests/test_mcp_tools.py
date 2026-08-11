@@ -56,7 +56,9 @@ class FakeAdapter(MonarchAdapter):
         return []
 
     def get_categories(self):
-        return []
+        from financial_mcp.monarch.models import Category
+
+        return [Category(id="c1", name="Groceries", group="Food & Dining")]
 
     def get_budgets(self, start, end):
         return []
@@ -101,7 +103,9 @@ def test_get_accounts_envelope_carries_freshness(tmp_path):
 def test_category_summary_tool(tmp_path):
     server = build_server(_service(tmp_path))
     result = _tool(server, "category_summary")()
-    assert result["data"][0]["category"] == "Groceries"
+    data = result["data"]
+    groc = next(r for r in data["categories"] if r["category"] == "Groceries")
+    assert groc["group"] == "Food & Dining"   # requires FakeAdapter.get_categories() below
     assert "as_of" in result
 
 
