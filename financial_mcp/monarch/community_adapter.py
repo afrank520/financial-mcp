@@ -11,7 +11,8 @@ from decimal import Decimal
 from financial_mcp.monarch import auth
 from financial_mcp.monarch.adapter import MonarchAdapter
 from financial_mcp.monarch.models import (
-    Account, Balance, BalanceSnapshot, BudgetItem, Cashflow, Category, NetWorthSnapshot, Transaction,
+    Account, Balance, BalanceSnapshot, BudgetItem, Cashflow, Category, Holding, NetWorthSnapshot,
+    RecurringItem, Transaction,
 )
 from financial_mcp.monarch.queries import (
     GET_ACCOUNT_SNAPSHOTS,
@@ -21,6 +22,8 @@ from financial_mcp.monarch.queries import (
     GET_BUDGETS,
     GET_CASHFLOW_SUMMARY,
     GET_CATEGORIES,
+    GET_HOLDINGS,
+    GET_RECURRING,
     GET_TRANSACTIONS,
 )
 
@@ -276,5 +279,64 @@ class CommunityAdapter(MonarchAdapter):
                 budgeted=Decimal(str(m.get("plannedCashFlowAmount") or 0)),
                 actual=Decimal(str(m.get("actualAmount") or 0)),
                 remaining=Decimal(str(m.get("remainingAmount") or 0)),
+            ))
+        return out
+
+    def get_holdings(self) -> list[Holding]:
+        accts = self._run(self._transport("GetAccounts", GET_ACCOUNTS, {}))
+        today = self._today().isoformat()
+        out: list[Holding] = []
+        for a in accts.get("accounts", []):
+            if not (a.get("holdingsCount") or 0):
+                continue
+            account_name = a.get("displayName", "")
+            variables = {"input": {
+                "accountIds": [a["id"]],
+                "startDate": today,
+                "endDate": today,
+                "includeHiddenHoldings": True,
+            }}
+            data = self._run(self._transport("Web_GetHoldings", GET_HOLDINGS, variables))
+            port = (data.get("portfolio") or {})
+            edges = ((port.get("aggregateHoldings") or {}).get("edges")) or []
+            for edge in edges:
+                node = edge.get("node") or {}
+                sec = node.get("security") or {}
+                price = sec.get("currentPrice")
+                if price is None:
+                    price = sec.get("closingPrice")
+                basis = node.get("basis")
+                dcd = node.get("securityPriceChangeDollars")
+                dcp = node.get("securityPriceChangePercent")
+                out.append(Holding(
+                    account=account_name,
+                    ticker=sec.get("ticker"),
+                    name=sec.get("name") or "",
+                    quantity=Decimal(str(node.get("quantity") or 0)),
+                    price=Decimal(str(price or 0)),
+                    value=Decimal(str(node.get("totalValue") or 0)),
+                    cost_basis=None if basis is None else Decimal(str(basis)),
+                    day_change_dollars=None if dcd is None else Decimal(str(dcd)),
+                    day_change_percent=None if dcp is None else Decimal(str(dcp)),
+                ))
+        return out
+
+    def get_recurring(self, start: datetime.date, end: datetime.date) -> list[RecurringItem]:
+        variables = {"startDate": start.isoformat(), "endDate": end.isoformat(), "filters": None}
+        data = self._run(
+            self._transport("Web_GetUpcomingRecurringTransactionItems", GET_RECURRING, variables)
+        )
+        out: list[RecurringItem] = []
+        for it in data.get("recurringTransactionItems") or []:
+            stream = it.get("stream") or {}
+            merchant = (stream.get("merchant") or {}).get("name") or ""
+            out.append(RecurringItem(
+                date=datetime.date.fromisoformat(it["date"]),
+                merchant=merchant,
+                amount=Decimal(str(it.get("amount") or 0)),
+                frequency=stream.get("frequency"),
+                account=(it.get("account") or {}).get("displayName"),
+                category=(it.get("category") or {}).get("name"),
+                is_past=bool(it.get("isPast")),
             ))
         return out

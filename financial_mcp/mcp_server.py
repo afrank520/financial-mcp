@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from mcp.server.fastmcp import FastMCP
 
-from financial_mcp.analytics import balances, budgets, networth, savings, spending
+from financial_mcp.analytics import balances, budgets, holdings, networth, recurring, savings, spending
 from financial_mcp.data_service import DataService
 from financial_mcp.monarch.community_adapter import CloudflareBlockedError, SessionExpiredError
 
@@ -44,6 +44,21 @@ def build_server(svc: DataService) -> FastMCP:
             "as_of": f["as_of"],
             "age_hours": None if age_s is None else round(age_s / 3600, 1),
             "stale": not f["fresh"],
+            "count": len(data) if count is None else count,
+            "data": data,
+        }
+
+    def _live_envelope(data, count: int | None = None) -> dict:
+        """Envelope for tools that fetch live every call (no cache to age against).
+
+        Unlike _envelope, this does not read cache freshness: the data was just
+        pulled from Monarch, so as_of is now, age is zero, and it is never stale.
+        """
+        now = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
+        return {
+            "as_of": now,
+            "age_hours": 0.0,
+            "stale": False,
             "count": len(data) if count is None else count,
             "data": data,
         }
@@ -340,6 +355,56 @@ def build_server(svc: DataService) -> FastMCP:
         return _guard(_run)
 
     @server.tool()
+    def holdings_summary() -> dict:
+        """Current investment holdings: each position plus portfolio totals.
+
+        Returns an envelope whose data has `positions` (one per holding:
+        account, ticker, name, quantity, price, value, cost_basis, gain_loss,
+        day_change_dollars, day_change_percent), `totals` (portfolio value,
+        cost_basis, gain_loss), and a `methodology` string. gain_loss is
+        value − cost_basis (Monarch's own numbers) and is null when Monarch has
+        no cost basis for a position; such positions count toward total value
+        but not toward total cost_basis/gain_loss. All figures are Monarch's
+        own — no returns %, allocation %, or other derived ratios. Positions are
+        largest-value first. Surface the methodology when discussing the numbers.
+        """
+        def _run():
+            data = holdings.holdings_summary(svc.holdings())
+            return _envelope("holdings", _jsonify([data])[0], count=len(data["positions"]))
+        return _guard(_run)
+
+    @server.tool()
+    def recurring_summary(start: str, end: str) -> dict:
+        """Upcoming/past recurring (subscription) items in a window (YYYY-MM-DD, inclusive).
+
+        Returns an envelope whose data has `window`, `items` (one per recurring
+        instance: date, merchant, amount, frequency, account, category, is_past),
+        a `total_expected` (plain sum of the window's item amounts — Monarch's own
+        signed amounts, NOT a normalized monthly figure), and a `methodology`
+        string. Amounts and frequencies are Monarch's own; nothing is normalized
+        or invented. Items are date-ascending (what is hitting next). Fetched live
+        each call. Use this for "what subscriptions/recurring charges are coming
+        up" and "how much of my month is already committed" questions.
+        """
+        try:
+            s = datetime.date.fromisoformat(start)
+        except ValueError:
+            return {"error": "start must be YYYY-MM-DD"}
+        try:
+            e = datetime.date.fromisoformat(end)
+        except ValueError:
+            return {"error": "end must be YYYY-MM-DD"}
+        if s > e:
+            return {"error": "start must not be after end"}
+
+        def _run():
+            data = recurring.recurring_summary(svc.recurring(s, e), s, e)
+            # Pulled live from Monarch every call — report honest live freshness
+            # (as_of = now, not stale) rather than borrowing an unread cache type.
+            return _live_envelope(_jsonify([data])[0], count=len(data["items"]))
+        return _guard(_run)
+
+    @server.tool()
     def cache_status() -> list[dict]:
         """Per-type cache freshness, age, source, and record count.
 
@@ -356,7 +421,7 @@ def build_server(svc: DataService) -> FastMCP:
         (recategorized transactions, added or edited an account, updated a
         budget), or explicitly wants the very latest data instead of the cached
         copy. data_type is one of: transactions, balances, accounts,
-        balance_history, networth, categories.
+        balance_history, networth, categories, holdings.
         """
         svc.refresh(data_type)
         return {"refreshed": data_type or "all"}

@@ -71,6 +71,12 @@ class FakeAdapter(MonarchAdapter):
     def get_budgets(self, start, end):
         return []
 
+    def get_holdings(self):
+        return []
+
+    def get_recurring(self, start, end):
+        return []
+
     def source_name(self):
         return "fake"
 
@@ -159,6 +165,8 @@ class _StubAdapter(MonarchAdapter):
     def get_networth_history(self): return []
     def get_categories(self): return []
     def get_budgets(self, start, end): return []
+    def get_holdings(self): return []
+    def get_recurring(self, start, end): return []
 
 
 def test_balance_history_is_served_and_cached(tmp_path):
@@ -293,3 +301,30 @@ def test_categories_is_cached(tmp_path):
     svc = DataService(adapter, cache)
     assert svc.categories() == svc.categories()
     assert adapter.cat_calls == 1
+
+
+def test_holdings_is_cached(tmp_path):
+    from financial_mcp.monarch.models import Holding
+
+    class _HAdapter(_StubAdapter):
+        def __init__(self):
+            super().__init__([])
+            self.holdings_calls = 0
+        def get_holdings(self):
+            self.holdings_calls += 1
+            return [Holding(account="B", ticker="VTI", name="VTI",
+                            quantity=Decimal("1"), price=Decimal("10"), value=Decimal("10"),
+                            cost_basis=Decimal("8"))]
+
+    adapter = _HAdapter()
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(adapter, cache)
+    first = svc.holdings()
+    second = svc.holdings()          # within TTL -> served from cache
+    assert adapter.holdings_calls == 1
+    assert second[0].value == Decimal("10")   # round-trips through JSON cache
+
+
+def test_cachettls_holdings_is_one_hour():
+    from financial_mcp.config import HOUR
+    assert CacheTTLs().holdings == 1 * HOUR

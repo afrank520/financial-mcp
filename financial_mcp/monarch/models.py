@@ -74,3 +74,25 @@ class BudgetItem(BaseModel):
     budgeted: Decimal
     actual: Decimal
     remaining: Decimal
+
+
+class Holding(BaseModel):
+    account: str                          # displayName of the investment account
+    ticker: str | None = None             # None for manual/unlisted holdings
+    name: str
+    quantity: Decimal
+    price: Decimal                         # Monarch's currentPrice (fallback: closingPrice)
+    value: Decimal                         # Monarch's own totalValue (pass-through)
+    cost_basis: Decimal | None = None      # Monarch's basis; None when Monarch has none
+    day_change_dollars: Decimal | None = None    # Monarch's securityPriceChangeDollars
+    day_change_percent: Decimal | None = None    # Monarch's securityPriceChangePercent
+
+
+class RecurringItem(BaseModel):
+    date: datetime.date                    # this instance's date
+    merchant: str
+    amount: Decimal                        # this instance's amount (Monarch's own, signed)
+    frequency: str | None = None           # stream frequency: "monthly" | "weekly" | ...
+    account: str | None = None             # displayName being charged
+    category: str | None = None
+    is_past: bool                          # Monarch's isPast

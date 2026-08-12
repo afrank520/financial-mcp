@@ -512,3 +512,92 @@ def test_get_budgets_maps_planned_actual_remaining():
     assert out[0].budgeted == Decimal("500.00")
     assert out[0].actual == Decimal("-620.00")
     assert out[0].remaining == Decimal("-120.00")
+
+
+def test_get_holdings_fans_out_over_accounts_with_holdings():
+    holdings_by_acct = {
+        "acct-brok": {"portfolio": {"aggregateHoldings": {"edges": [
+            {"node": {
+                "quantity": 120.5, "basis": 25000.00, "totalValue": 32341.20,
+                "securityPriceChangeDollars": 180.75, "securityPriceChangePercent": 0.56,
+                "security": {"name": "Vanguard Total Stock Market ETF", "ticker": "VTI",
+                             "currentPrice": 268.40, "closingPrice": 267.10},
+            }},
+            {"node": {  # manual holding: null ticker, null basis, null day-change, null currentPrice
+                "quantity": 1, "basis": None, "totalValue": 1900.00,
+                "securityPriceChangeDollars": None, "securityPriceChangePercent": None,
+                "security": {"name": "Manual Gold", "ticker": None,
+                             "currentPrice": None, "closingPrice": 1900.00},
+            }},
+        ]}}},
+    }
+
+    async def stub(operation, query, variables):
+        if operation == "GetAccounts":
+            return {"accounts": [
+                {"id": "acct-brok", "displayName": "Brokerage", "holdingsCount": 2},
+                {"id": "acct-check", "displayName": "Checking", "holdingsCount": 0},
+                {"id": "acct-noh", "displayName": "Odd", "holdingsCount": None},
+            ]}
+        if operation == "Web_GetHoldings":
+            return holdings_by_acct[variables["input"]["accountIds"][0]]
+        raise AssertionError(f"unexpected operation {operation}")
+
+    adapter = CommunityAdapter(SESSION, transport=stub, today=lambda: datetime.date(2026, 6, 30))
+    out = adapter.get_holdings()
+    # only the holdingsCount>0 account was queried -> 2 positions
+    assert len(out) == 2
+    vti = next(h for h in out if h.ticker == "VTI")
+    assert vti.account == "Brokerage"
+    assert vti.value == Decimal("32341.20")
+    assert vti.cost_basis == Decimal("25000.00")
+    assert vti.price == Decimal("268.40")           # currentPrice preferred
+    assert vti.day_change_dollars == Decimal("180.75")
+    gold = next(h for h in out if h.name == "Manual Gold")
+    assert gold.ticker is None
+    assert gold.cost_basis is None                  # null basis -> None
+    assert gold.day_change_dollars is None
+    assert gold.price == Decimal("1900.00")         # currentPrice null -> closingPrice fallback
+
+
+def test_get_recurring_maps_items():
+    async def stub(operation, query, variables):
+        assert operation == "Web_GetUpcomingRecurringTransactionItems"
+        assert variables["startDate"] == "2026-06-01"
+        assert variables["endDate"] == "2026-06-30"
+        return {"recurringTransactionItems": [
+            {"stream": {"frequency": "monthly", "amount": -15.99,
+                        "merchant": {"name": "Netflix"}},
+             "date": "2026-06-03", "isPast": True, "amount": -15.99,
+             "category": {"name": "Entertainment"},
+             "account": {"displayName": "Credit Card"}},
+            {"stream": {"frequency": None, "merchant": {"name": "Mystery"}},
+             "date": "2026-06-20", "isPast": False, "amount": -9.00,
+             "category": None, "account": None},
+        ]}
+
+    adapter = CommunityAdapter(SESSION, transport=stub)
+    out = adapter.get_recurring(datetime.date(2026, 6, 1), datetime.date(2026, 6, 30))
+    assert len(out) == 2
+    netflix = out[0]
+    assert netflix.merchant == "Netflix"
+    assert netflix.amount == Decimal("-15.99")
+    assert netflix.frequency == "monthly"
+    assert netflix.account == "Credit Card"
+    assert netflix.is_past is True
+    mystery = out[1]
+    assert mystery.frequency is None and mystery.account is None and mystery.category is None
+    assert mystery.is_past is False
+
+
+def test_holdings_and_recurring_query_constants_present():
+    from financial_mcp.monarch import queries
+    assert "Web_GetHoldings" in queries.GET_HOLDINGS
+    assert "totalValue" in queries.GET_HOLDINGS
+    assert "basis" in queries.GET_HOLDINGS
+    assert "ticker" in queries.GET_HOLDINGS
+    assert "Web_GetUpcomingRecurringTransactionItems" in queries.GET_RECURRING
+    assert "recurringTransactionItems" in queries.GET_RECURRING
+    assert "frequency" in queries.GET_RECURRING
+    # $filters is USED in the body (not the GET_BUDGETS unused-variable case)
+    assert "filters: $filters" in queries.GET_RECURRING

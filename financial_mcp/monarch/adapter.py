@@ -4,7 +4,8 @@ import abc
 import datetime
 
 from financial_mcp.monarch.models import (
-    Account, Balance, BalanceSnapshot, BudgetItem, Cashflow, Category, NetWorthSnapshot, Transaction,
+    Account, Balance, BalanceSnapshot, BudgetItem, Cashflow, Category, Holding, NetWorthSnapshot,
+    RecurringItem, Transaction,
 )
 
 
@@ -35,6 +36,12 @@ class MonarchAdapter(abc.ABC):
 
     @abc.abstractmethod
     def get_budgets(self, start: datetime.date, end: datetime.date) -> list[BudgetItem]: ...
+
+    @abc.abstractmethod
+    def get_holdings(self) -> list[Holding]: ...
+
+    @abc.abstractmethod
+    def get_recurring(self, start: datetime.date, end: datetime.date) -> list[RecurringItem]: ...
 
     @abc.abstractmethod
     def source_name(self) -> str: ...

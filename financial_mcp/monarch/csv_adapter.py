@@ -6,7 +6,8 @@ from decimal import Decimal
 
 from financial_mcp.monarch.adapter import MonarchAdapter
 from financial_mcp.monarch.models import (
-    Account, Balance, BalanceSnapshot, BudgetItem, Cashflow, Category, NetWorthSnapshot, Transaction,
+    Account, Balance, BalanceSnapshot, BudgetItem, Cashflow, Category, Holding, NetWorthSnapshot,
+    RecurringItem, Transaction,
 )
 
 
@@ -98,3 +99,9 @@ class CsvAdapter(MonarchAdapter):
 
     def get_budgets(self, start: datetime.date, end: datetime.date) -> list[BudgetItem]:
         raise RuntimeError("budgets are not available in CSV mode")
+
+    def get_holdings(self) -> list[Holding]:
+        raise RuntimeError("holdings are not available in CSV mode")
+
+    def get_recurring(self, start: datetime.date, end: datetime.date) -> list[RecurringItem]:
+        raise RuntimeError("recurring transactions are not available in CSV mode")

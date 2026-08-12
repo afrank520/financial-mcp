@@ -63,6 +63,12 @@ class FakeAdapter(MonarchAdapter):
     def get_budgets(self, start, end):
         return []
 
+    def get_holdings(self):
+        return []
+
+    def get_recurring(self, start, end):
+        return []
+
     def source_name(self):
         return "fake"
 
@@ -625,3 +631,101 @@ def test_budget_status_error_on_expired_session(tmp_path):
     server = build_server(DataService(ExpiredAdapter(), cache))
     result = _tool(server, "budget_status")(start="2026-06-01", end="2026-06-30")
     assert "financial-mcp-login" in result["error"]
+
+
+def test_holdings_summary_tool_envelope_and_totals(tmp_path):
+    from financial_mcp.monarch.models import Holding
+
+    class _HAdapter(FakeAdapter):
+        def get_holdings(self):
+            return [
+                Holding(account="Brokerage", ticker="VTI", name="VTI",
+                        quantity=Decimal("2"), price=Decimal("100"), value=Decimal("200"),
+                        cost_basis=Decimal("150"),
+                        day_change_dollars=Decimal("3"), day_change_percent=Decimal("1.5")),
+                Holding(account="IRA", ticker=None, name="Manual",
+                        quantity=Decimal("1"), price=Decimal("50"), value=Decimal("50"),
+                        cost_basis=None),
+            ]
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(_HAdapter(), cache)
+    server = build_server(svc)
+    data = _tool(server, "holdings_summary")()
+    assert data["count"] == 2
+    body = data["data"]
+    assert body["positions"][0]["ticker"] == "VTI"        # biggest value first
+    # Decimals arrive as strings
+    assert body["totals"]["value"] == "250"
+    assert body["totals"]["cost_basis"] == "150"
+    assert body["totals"]["gain_loss"] == "50"
+    assert isinstance(body["positions"][0]["value"], str)
+    assert body["positions"][1]["gain_loss"] is None      # basis-less, key present, null
+    assert "methodology" in body
+
+
+def test_recurring_summary_tool_envelope(tmp_path):
+    from financial_mcp.monarch.models import RecurringItem
+
+    class _RAdapter(FakeAdapter):
+        def get_recurring(self, start, end):
+            return [
+                RecurringItem(date=datetime.date(2026, 6, 20), merchant="Spotify",
+                              amount=Decimal("-9.99"), frequency="monthly",
+                              account="Card", category="Subs", is_past=False),
+                RecurringItem(date=datetime.date(2026, 6, 3), merchant="Netflix",
+                              amount=Decimal("-15.99"), frequency="monthly",
+                              account="Card", category="Subs", is_past=True),
+            ]
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(_RAdapter(), cache)
+    server = build_server(svc)
+    data = _tool(server, "recurring_summary")("2026-06-01", "2026-06-30")
+    assert data["count"] == 2
+    body = data["data"]
+    assert [i["merchant"] for i in body["items"]] == ["Netflix", "Spotify"]  # date asc
+    assert body["total_expected"] == "-25.98"        # Decimal -> string
+    assert isinstance(body["items"][0]["amount"], str)
+    assert "methodology" in body
+
+
+def test_recurring_summary_reports_live_freshness(tmp_path):
+    """recurring_summary must report honest live freshness (as_of=now, never
+    stale), NOT the borrowed/unread `transactions` cache type's freshness.
+
+    Regression guard: the transactions cache is deliberately left unpopulated
+    (fresh SqliteCache, never call get_transactions/get_accounts). Under the
+    old buggy code, _envelope("transactions", ...) would see no cache entry
+    and return as_of=None, stale=True. The fix must return a real as_of and
+    stale=False regardless of transactions cache state.
+    """
+    from financial_mcp.monarch.models import RecurringItem
+
+    class _RAdapter(FakeAdapter):
+        def get_recurring(self, start, end):
+            return [
+                RecurringItem(date=datetime.date(2026, 6, 20), merchant="Spotify",
+                              amount=Decimal("-9.99"), frequency="monthly",
+                              account="Card", category="Subs", is_past=False),
+            ]
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(_RAdapter(), cache)
+    server = build_server(svc)
+
+    # Do NOT populate the transactions cache before calling recurring_summary.
+    data = _tool(server, "recurring_summary")("2026-06-01", "2026-06-30")
+
+    assert data["stale"] is False
+    assert data["age_hours"] == 0.0
+    assert data["as_of"] is not None
+    assert "T" in data["as_of"]
+
+
+def test_recurring_summary_tool_rejects_bad_dates(tmp_path):
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(FakeAdapter(), cache)
+    server = build_server(svc)
+    assert _tool(server, "recurring_summary")("nope", "2026-06-30") == {"error": "start must be YYYY-MM-DD"}
+    assert _tool(server, "recurring_summary")("2026-06-30", "2026-06-01")["error"] == "start must not be after end"

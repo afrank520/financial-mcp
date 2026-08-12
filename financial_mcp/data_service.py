@@ -14,11 +14,13 @@ from financial_mcp.monarch.models import (
     BudgetItem,
     Cashflow,
     Category,
+    Holding,
     NetWorthSnapshot,
+    RecurringItem,
     Transaction,
 )
 
-T = TypeVar("T", Account, Balance, BalanceSnapshot, Transaction, NetWorthSnapshot, Category)
+T = TypeVar("T", Account, Balance, BalanceSnapshot, Transaction, NetWorthSnapshot, Category, Holding)
 
 logger = logging.getLogger("financial_mcp")
 
@@ -64,6 +66,9 @@ class DataService:
     def categories(self) -> list[Category]:
         return self._get("categories", self._adapter.get_categories, Category)
 
+    def holdings(self) -> list[Holding]:
+        return self._get("holdings", self._adapter.get_holdings, Holding)
+
     def cashflow(self, start: datetime.date, end: datetime.date) -> Cashflow:
         # Never cached — one lightweight window-parameterized live call.
         return self._adapter.get_cashflow(start, end)
@@ -72,9 +77,14 @@ class DataService:
         # Never cached — window-parameterized, mirrors cashflow.
         return self._adapter.get_budgets(start, end)
 
+    def recurring(self, start: datetime.date, end: datetime.date) -> list[RecurringItem]:
+        # Never cached — window-parameterized, mirrors cashflow/budgets.
+        return self._adapter.get_recurring(start, end)
+
     def refresh(self, data_type: str | None = None) -> None:
         types = [data_type] if data_type else [
-            "transactions", "balances", "accounts", "balance_history", "networth", "categories"
+            "transactions", "balances", "accounts", "balance_history", "networth", "categories",
+            "holdings",
         ]
         for t in types:
             self._cache.invalidate(t)
@@ -91,6 +101,8 @@ class DataService:
                 self.networth_history()
             elif t == "categories":
                 self.categories()
+            elif t == "holdings":
+                self.holdings()
 
     def freshness(self, data_type: str) -> dict:
         """Freshness metadata (as_of, age_seconds, fresh) for one data type."""
