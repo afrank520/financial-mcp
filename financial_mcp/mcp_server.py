@@ -566,6 +566,41 @@ def build_server(
 
         return _guard(_run)
 
+    @server.tool()
+    def undo_last() -> dict:
+        """Reverse the most recent recategorization batch (multi-level: call
+        again to step back to the previous one). Undo is a compensating write —
+        it re-sets each transaction to the category it had when the write ran; it
+        does not detect edits you made afterward. Refuses in write_mode 'off'.
+        """
+        disabled = _writes_enabled()
+        if disabled:
+            return {"error": disabled}
+
+        def _run():
+            batch_id = journal.last_undoable_batch()
+            if batch_id is None:
+                return {"reversed": 0, "message": "nothing to undo"}
+            rows = journal.undoable_rows(batch_id)
+            reversed_ = 0
+            for r in rows:
+                if svc.recategorize(r["transaction_id"], r["old_category_id"]):
+                    reversed_ += 1
+            journal.mark_undone(batch_id)
+            summary = rows[0]["old_category_name"] if rows else ""
+            return {"reversed": reversed_, "batch_id": batch_id,
+                    "restored_to": summary}
+
+        return _guard(_run)
+
+    @server.tool()
+    def undo_history() -> dict:
+        """Show the reversible recategorization batches, newest first: each with a
+        summary (e.g. 'Uncategorized→Shopping ×12'), count, when, and whether it
+        has already been undone.
+        """
+        return _guard(lambda: {"history": journal.history()})
+
     return server
 
 

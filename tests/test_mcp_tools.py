@@ -1030,3 +1030,80 @@ def test_bulk_partial_failure_reports_honestly_and_only_succeeded_undoable(tmp_p
     assert journal.last_undoable_batch() == out["batch_id"]
     rows = journal.undoable_rows(out["batch_id"])
     assert [r["transaction_id"] for r in rows] == ["tx1"]
+
+
+# ---------------------------------------------------------------------------
+# undo_last / undo_history
+# ---------------------------------------------------------------------------
+
+
+def test_undo_last_reverses_most_recent_batch(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path)
+    recat = _tool(server, "recategorize_matching")
+
+    preview = recat(to_category="Shopping", merchant="Amazon")
+    recat(to_category="Shopping", merchant="Amazon", confirm_token=preview["confirm_token"])
+    svc._adapter.recategorized.clear()
+
+    undo = _tool(server, "undo_last")
+    out = undo()
+
+    assert out["reversed"] == 2
+    # Compensating writes restored the ORIGINAL category id ("uncat") for
+    # both transactions -- not the new one ("shop").
+    assert svc._adapter.recategorized == [("tx1", "uncat"), ("tx2", "uncat")]
+    assert journal.last_undoable_batch() is None
+
+
+def test_undo_last_nothing_to_undo(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path)
+    out = _tool(server, "undo_last")()
+    assert out["reversed"] == 0
+    assert out["message"] == "nothing to undo"
+
+
+def test_undo_history_lists_batches(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path)
+    recat = _tool(server, "recategorize_matching")
+
+    preview = recat(to_category="Shopping", merchant="Amazon")
+    recat(to_category="Shopping", merchant="Amazon", confirm_token=preview["confirm_token"])
+
+    out = _tool(server, "undo_history")()
+
+    assert out["history"][0]["count"] == 2
+    assert "→Shopping" in out["history"][0]["summary"]
+
+
+def test_undo_off_mode_refuses(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="off")
+    out = _tool(server, "undo_last")()
+    assert "disabled" in out["error"]
+    assert not getattr(svc._adapter, "recategorized", [])
+
+
+def test_undo_last_multi_level_steps_to_prior_batch(tmp_path):
+    """A second undo_last call after the first steps back to the batch before it."""
+    svc, journal, server = _bulk_server(tmp_path)
+    recat = _tool(server, "recategorize_transaction")
+
+    # Batch 1: tx1 Uncategorized -> Shopping
+    out1 = recat(transaction_id="tx1", category="Shopping")
+    batch1 = out1["batch_id"]
+    # Batch 2: tx2 Uncategorized -> Shopping
+    out2 = recat(transaction_id="tx2", category="Shopping")
+    batch2 = out2["batch_id"]
+
+    assert journal.last_undoable_batch() == batch2
+
+    undo = _tool(server, "undo_last")
+    first = undo()
+    assert first["reversed"] == 1
+    assert first["batch_id"] == batch2
+    # last_undoable_batch has advanced to the prior batch.
+    assert journal.last_undoable_batch() == batch1
+
+    second = undo()
+    assert second["reversed"] == 1
+    assert second["batch_id"] == batch1
+    assert journal.last_undoable_batch() is None
