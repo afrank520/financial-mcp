@@ -823,3 +823,210 @@ def test_recategorize_bad_category_refuses_with_valid_list(tmp_path):
     assert "Shopping" in out["error"]
     # Fail-closed: no write attempted.
     assert not getattr(svc._adapter, "recategorized", [])
+
+
+# ---------------------------------------------------------------------------
+# recategorize_matching (bulk write tool) — dry-run/confirm handshake, batch
+# cap, honest partial-failure result.
+# ---------------------------------------------------------------------------
+
+
+class BulkRecatAdapter(FakeAdapter):
+    """Two known-id Amazon transactions currently 'Uncategorized', plus a
+    target category ('Shopping') distinct from the current one."""
+
+    def get_transactions(self):
+        return [
+            Transaction(
+                id="tx1",
+                date=datetime.date(2026, 1, 2),
+                merchant="Amazon",
+                category="Uncategorized",
+                account="Checking",
+                original_statement="AMZN",
+                notes="",
+                amount=Decimal("-10.00"),
+                tags=[],
+                owner="A",
+            ),
+            Transaction(
+                id="tx2",
+                date=datetime.date(2026, 1, 3),
+                merchant="Amazon",
+                category="Uncategorized",
+                account="Checking",
+                original_statement="AMZN",
+                notes="",
+                amount=Decimal("-20.00"),
+                tags=[],
+                owner="A",
+            ),
+        ]
+
+    def get_categories(self):
+        from financial_mcp.monarch.models import Category
+
+        return [
+            Category(id="uncat", name="Uncategorized", group="Other"),
+            Category(id="shop", name="Shopping", group="Discretionary"),
+        ]
+
+
+def _bulk_recat_service(tmp_path):
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    return DataService(BulkRecatAdapter(), cache)
+
+
+def _bulk_server(tmp_path, write_mode="safe", batch_cap=200):
+    from financial_mcp.cache.undo_journal import UndoJournal
+
+    svc = _bulk_recat_service(tmp_path)
+    journal = UndoJournal(str(tmp_path / "j.db"))
+    server = build_server(svc, write_mode=write_mode, batch_cap=batch_cap, journal=journal)
+    return svc, journal, server
+
+
+def test_bulk_off_mode_refuses(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="off")
+    tool = _tool(server, "recategorize_matching")
+    out = tool(to_category="Shopping", merchant="Amazon")
+    assert "disabled" in out["error"]
+    assert not getattr(svc._adapter, "recategorized", [])
+
+
+def test_bulk_safe_dryrun_previews_without_mutating(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "recategorize_matching")
+
+    out = tool(to_category="Shopping", merchant="Amazon")
+
+    assert out["dry_run"] is True
+    assert out["would_change"] == 2
+    assert out["resolved_category"] == {"id": "shop", "name": "Shopping", "group": "Discretionary"}
+    assert len(out["sample"]) == 2
+    assert {row["current_category"] for row in out["sample"]} == {"Uncategorized"}
+    assert "confirm_token" in out
+    assert out["mode"] == "safe"
+    # Nothing mutated on a dry-run preview.
+    assert not getattr(svc._adapter, "recategorized", [])
+
+
+def test_bulk_confirm_token_executes_and_journals(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "recategorize_matching")
+
+    preview = tool(to_category="Shopping", merchant="Amazon")
+    out = tool(to_category="Shopping", merchant="Amazon", confirm_token=preview["confirm_token"])
+
+    assert out["changed"] == 2
+    assert out["failed"] == 0
+    assert out["to"] == "Shopping"
+    assert "batch_id" in out
+    assert journal.last_undoable_batch() == out["batch_id"]
+    assert sorted(svc._adapter.recategorized) == [("tx1", "shop"), ("tx2", "shop")]
+
+
+def test_bulk_stale_token_refused_and_repreviewed(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "recategorize_matching")
+
+    out = tool(to_category="Shopping", merchant="Amazon", confirm_token="deadbeefdeadbeef")
+
+    assert out.get("dry_run") is True  # stale/wrong token -> re-preview, not execute
+    assert not getattr(svc._adapter, "recategorized", [])
+
+
+def test_bulk_full_mode_executes_directly(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="full")
+    tool = _tool(server, "recategorize_matching")
+
+    out = tool(to_category="Shopping", merchant="Amazon")
+
+    assert out["changed"] == 2 and out["failed"] == 0
+    assert journal.last_undoable_batch() == out["batch_id"]
+
+
+def test_bulk_over_cap_refuses(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="safe", batch_cap=1)
+    tool = _tool(server, "recategorize_matching")
+
+    out = tool(to_category="Shopping", merchant="Amazon")
+
+    assert "error" in out
+    assert "over the batch cap" in out["error"]
+    assert not getattr(svc._adapter, "recategorized", [])
+
+
+def test_bulk_empty_match(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "recategorize_matching")
+
+    out = tool(to_category="Shopping", merchant="ZZZ-nothing")
+
+    assert out == {"would_change": 0, "message": "no transactions matched"}
+    assert "confirm_token" not in out
+
+
+def test_bulk_bad_to_category_fails_closed(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "recategorize_matching")
+
+    out = tool(to_category="Nonexistent", merchant="Amazon")
+
+    assert "Nonexistent" in out["error"]
+    assert "Shopping" in out["error"]
+    assert not getattr(svc._adapter, "recategorized", [])
+
+
+def test_bulk_bad_start_date(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "recategorize_matching")
+    out = tool(to_category="Shopping", merchant="Amazon", start="nope")
+    assert out == {"error": "start must be YYYY-MM-DD"}
+
+
+def test_bulk_bad_end_date(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "recategorize_matching")
+    out = tool(to_category="Shopping", merchant="Amazon", end="nope")
+    assert out == {"error": "end must be YYYY-MM-DD"}
+
+
+def test_bulk_start_after_end(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "recategorize_matching")
+    out = tool(to_category="Shopping", merchant="Amazon", start="2026-01-05", end="2026-01-01")
+    assert out == {"error": "start must not be after end"}
+
+
+class PartialFailBulkAdapter(BulkRecatAdapter):
+    """recategorize_transaction returns False for tx2 — simulates Monarch
+    accepting the call but not applying the category for one transaction,
+    to exercise the not-applied branch of the bulk executor."""
+
+    def recategorize_transaction(self, transaction_id, category_id):
+        self.recategorized = getattr(self, "recategorized", [])
+        self.recategorized.append((transaction_id, category_id))
+        return transaction_id != "tx2"
+
+
+def test_bulk_partial_failure_reports_honestly_and_only_succeeded_undoable(tmp_path):
+    from financial_mcp.cache.undo_journal import UndoJournal
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(PartialFailBulkAdapter(), cache)
+    journal = UndoJournal(str(tmp_path / "j.db"))
+    server = build_server(svc, write_mode="full", batch_cap=200, journal=journal)
+    tool = _tool(server, "recategorize_matching")
+
+    out = tool(to_category="Shopping", merchant="Amazon")
+
+    assert out["changed"] == 1
+    assert out["failed"] == 1
+    assert out["failures"] == [
+        {"transaction_id": "tx2", "reason": "Monarch did not apply the category"}
+    ]
+    # Only the succeeded row (tx1) is undoable — the failed row (tx2) is not.
+    assert journal.last_undoable_batch() == out["batch_id"]
+    rows = journal.undoable_rows(out["batch_id"])
+    assert [r["transaction_id"] for r in rows] == ["tx1"]

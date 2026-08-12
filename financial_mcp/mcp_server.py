@@ -475,6 +475,97 @@ def build_server(
 
         return _guard(_run)
 
+    @server.tool()
+    def recategorize_matching(
+        to_category: str,
+        merchant: str | None = None,
+        category: str | None = None,
+        min_amount: float | None = None,
+        max_amount: float | None = None,
+        start: str | None = None,
+        end: str | None = None,
+        confirm_token: str | None = None,
+    ) -> dict:
+        """Bulk-recategorize every transaction matching a filter to one category.
+
+        Filter mirrors search_transactions (merchant/category substrings +
+        amount range) plus an optional YYYY-MM-DD date window. In 'safe' mode
+        this is two-phase: call without confirm_token to preview (nothing
+        mutates) and get a confirm_token, then call again with that token to
+        execute. In 'full' mode it executes directly. Over the batch cap it
+        refuses (no truncation). Reversible via undo_last.
+        """
+        disabled = _writes_enabled()
+        if disabled:
+            return {"error": disabled}
+
+        s = e = None
+        if start is not None:
+            try:
+                s = datetime.date.fromisoformat(start)
+            except ValueError:
+                return {"error": "start must be YYYY-MM-DD"}
+        if end is not None:
+            try:
+                e = datetime.date.fromisoformat(end)
+            except ValueError:
+                return {"error": "end must be YYYY-MM-DD"}
+        if s and e and s > e:
+            return {"error": "start must not be after end"}
+
+        def _run():
+            cats = svc.categories()
+            try:
+                target = writes.resolve_category(to_category, cats)
+            except writes.WriteError as exc:
+                return {"error": str(exc)}
+            matched = writes.match_transactions(
+                svc.transactions(), merchant=merchant, category=category,
+                min_amount=None if min_amount is None else Decimal(str(min_amount)),
+                max_amount=None if max_amount is None else Decimal(str(max_amount)),
+                start=s, end=e,
+            )
+            if not matched:
+                return {"would_change": 0, "message": "no transactions matched"}
+            if len(matched) > batch_cap:
+                return {"error": f"{len(matched)} transactions match, over the batch cap "
+                                 f"of {batch_cap}. Narrow the filter or raise batch_cap."}
+            token = writes.compute_confirm_token([t.id for t in matched], target.id)
+
+            def _preview():
+                sample = [{"transaction_id": t.id, "date": t.date.isoformat(),
+                           "merchant": t.merchant, "amount": str(t.amount),
+                           "current_category": t.category} for t in matched[:20]]
+                return {"dry_run": True, "would_change": len(matched),
+                        "resolved_category": {"id": target.id, "name": target.name,
+                                              "group": target.group},
+                        "sample": sample, "confirm_token": token, "mode": write_mode}
+
+            if write_mode == "safe":
+                if confirm_token is None or confirm_token != token:
+                    return _preview()
+            # execute (safe+valid token, or full)
+            by_name = {}
+            for c in cats:
+                by_name.setdefault(c.name.lower(), []).append(c)
+            batch_id = uuid.uuid4().hex
+            changed = 0
+            failures = []
+            for t in matched:
+                oid_matches = by_name.get(t.category.lower(), [])
+                old_id = oid_matches[0].id if len(oid_matches) == 1 else None
+                journal.record(batch_id, t.id, old_id, t.category, target.id, target.name)
+                if svc.recategorize(t.id, target.id):
+                    journal.mark_succeeded(batch_id, t.id)
+                    changed += 1
+                else:
+                    failures.append({"transaction_id": t.id,
+                                     "reason": "Monarch did not apply the category"})
+            return {"changed": changed, "failed": len(failures),
+                    "failures": failures, "batch_id": batch_id, "to": target.name}
+
+        return _guard(_run)
+
     return server
 
 
