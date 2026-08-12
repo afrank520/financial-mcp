@@ -1,7 +1,7 @@
 # Monarch MCP — Plan 4 Slice 1: transaction recategorization (writes + undo) (design)
 
 **Date:** 2026-08-11
-**Status:** Draft — approved in brainstorm, pending spec review.
+**Status:** Shipped + live-proven (2026-08-11). Built via brainstorm→spec→plan→SDD (7 tasks; haiku/sonnet/opus tiers). Final whole-branch review requested one fix (undo honesty on partial compensating-write failure), fixed + re-reviewed clean. Live-verified in Claude Desktop against the real org — 10/10 spec §6 matrix passed, zero unintended mutations (see §6 "Live-verify results").
 **Roadmap slot:** First phase to MUTATE real Monarch records (Plan 4). The `write_mode`/`batch_cap` scaffolding in `config.py` has existed but inert — nothing read it. This slice makes writes real, gated, and reversible. Framed as the data-cleanup capability a general Monarch user (not just Adam/TeamFrank) would use. Follows the completed Tier-1 breadth (`2026-08-11-monarch-mcp-tier1-holdings-recurring-design.md`).
 
 ---
@@ -152,6 +152,17 @@ succeeded          INTEGER  -- 1 = mutation confirmed; 0 = attempted but failed 
 - **UndoJournal:** records before-state prior to mutation; `undo_last` reverses newest batch + marks `undone=1`; **multi-level** — second `undo_last` steps to the prior batch; `undo_history` newest-first w/ undone flags; a half-failed batch offers only its `succeeded` rows.
 - **Tool layer:** four tools return proper envelopes; `_guard` maps auth errors; dry-run vs execute; `write_mode=off` refusal.
 - **Live-verify (interactive, at ship):** in Claude Desktop against the real org — one single recategorization + undo; one small bulk (dry-run → confirm → verify in Monarch UI → `undo_last` → verify restored). Confirms the `updateTransaction` mutation shape and live category-id resolution. Recorded in this spec on ship.
+
+### Live-verify results (2026-08-11, real org, Claude Desktop) — 10/10 PASS, zero unintended mutations
+Full §6 matrix passed; every transaction touched returned to its original category; both undo batches confirmed reversed.
+- **Single recat + undo:** merchant "Austin Aster" +$2.79 moved Fast Food → Restaurants & Bars (`changed:1`), then `undo_last` restored it to Fast Food (`reversed:1`). Proves the `updateTransaction` mutation shape and live category-id resolution.
+- **Bulk dry-run → confirm → undo:** dry-run returned `would_change` + resolved `{id,name,group}` + sample-with-current-category + `confirm_token`; confirm executed (`failed:0`); `undo_last` reversed the batch; `undo_history` showed it `undone`.
+- **All four refusals held (nothing mutated):** stale/forged token → re-preview; over-cap → count + no token, no truncation; nonsense category → fail-closed with valid-name list, nothing created; nonexistent merchant → `would_change:0`, no token.
+
+**Live-proven property (unplanned failure injection — the most valuable moment):** a real HTTP 502 hit mid bulk-undo. The system behaved exactly as §5 requires — the failed batch stayed `undone: false` and fully retryable, and the honest `{reversed, failed, failures}` payload plus `undo_history` let the operator see the batch was still open. This is a live, production proof of the final-review fix (undo_last marks only reverted rows; failed rows remain undoable). **Operational habit worth baking into any bulk workflow: check `undo_history` before a blind retry** — a blind second `undo_last` would otherwise step back to the *previous* (already-reversed) batch instead of finishing the open one.
+
+### Usage guidance (from live-verify, not a defect)
+- **Prefer `start`/`end` date windows to keep bulk batches small and auditable.** High-frequency repeat merchants (Spuntinos, Dunkin, Amazon) exceed 3–8 rows over their lifetime, so a merchant-only filter is how you'd accidentally approach the `batch_cap` (200) refusal. Narrowing by date window keeps each batch reviewable in the dry-run sample before you confirm. The over-cap guard (§3, fail-closed, no truncation) is the backstop, not the plan.
 
 ---
 
