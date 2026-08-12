@@ -1,7 +1,7 @@
 # Monarch MCP — holdings + recurring/subscriptions (design)
 
 **Date:** 2026-08-11
-**Status:** Draft (design lock pending user review).
+**Status:** ✅ Shipped + live-proven (2026-08-11). See §4.1 for live-verification results.
 **Roadmap slot:** Second and final Tier-1 breadth spec (completes goal #2). Follows the shipped Tier-1 breadth spec (`2026-08-10-monarch-mcp-tier1-breadth-design.md`) and the budget income/expense split (`2026-08-11-monarch-mcp-budget-income-expense-split-design.md`). Next after this: the `financial_context` resource, then the HELOC glide-path checkpoint.
 
 ---
@@ -105,7 +105,7 @@ Reads accounts (via the existing accounts query), selects those with `holdingsCo
       "gain_loss": "7341.20", "day_change_dollars": "180.75", "day_change_percent": "0.56" }
   ],
   "totals": { "value": "...", "cost_basis": "...", "gain_loss": "..." },
-  "methodology": "Values, cost basis, and day-change are Monarch's own. gain_loss is value minus cost basis (Monarch's own numbers); positions with no cost basis are excluded from the cost-basis and gain_loss totals but still counted in total value."
+  "methodology": "Values, cost basis, and day-change are Monarch's own. gain_loss is value minus cost basis (Monarch's own numbers); positions with no cost basis are excluded from the cost-basis and gain_loss totals but still counted in total value. Monarch often reports a cost basis of 0 (not null) for retirement, 529, and aggregated accounts it has no basis for, so their gain_loss equals full value and inflates the gain_loss total; treat total value as reliable and gain_loss as indicative only."
 }
 ```
 - `gain_loss = value − cost_basis` per position, both Monarch's own. The `gain_loss` key is always present; it is `null` when `cost_basis is None` (never omitted, never guessed).
@@ -194,10 +194,24 @@ Single `Web_GetUpcomingRecurringTransactionItems` call, null-safe mapping of eac
 - **Tool layer:** envelope shape for both; nested Decimals survive `_jsonify` → string; both docstrings describe pass-through + honesty calls + methodology.
 - **Live verify (interactive, at build):** in Claude Desktop against the real org — holdings total value vs Monarch's Investments UI + a couple of positions' `gain_loss`; recurring list for a month vs Monarch's Recurring page. This is also the field/enum probe: confirms `totalValue`/`basis` come through, `frequency` strings, that `holdingsCount` reliably identifies investment accounts, and that the recurring query is accepted with a null `filters`. Recorded in this spec on ship.
 
+### 4.1 Live-verification results (2026-08-11, real org, Claude Desktop) — PASSED
+
+**Recurring (June 2026 window) — PASSED, and closed the one live unknown:**
+- **Null `filters` accepted.** `Web_GetUpcomingRecurringTransactionItems` returned 38 items with `filters: null` — no HTTP 400. The `$filters`-is-used-in-body design (vs the GET_BUDGETS unused-variable trap) is confirmed live; no query surgery needed.
+- **`total_expected` = +$32,752.55**, matching an independent hand-sum of all 38 items exactly. (This is a raw signed sum — income streams net against outflows, by design. The methodology string says so; the LLM narration correctly separated the ~−$14,700 expense side for cash-flow framing.)
+- Items date-ascending (Jun 1 → Jun 30); merchant / amount / frequency / account all populated.
+- **Freshness: `as_of` 2026-08-11T23:58:47Z (now), `age_hours` 0.0, `stale: false`** — the `_live_envelope` fix (commit `da7268d`) is live-proven. The pre-merge whole-branch-review finding is closed on real data.
+
+**Holdings — PASSED on all math, plus a real data-shape discovery:**
+- Portfolio total **$1,000,177.57** across 26 positions; sort largest-value-first confirmed (clean descending down to a $0.0001 dust position).
+- `gain_loss = value − cost_basis` exact on both spot-checks: RBLX $75.66 − $150.00 = **−$74.34** ✓; Salesforce 401(k) CG 2045 $729,875.37 − $0.00 = **$729,875.37** ✓.
+- Cache refresh + freshness worked (age 0.0, not stale).
+- **Discovery — Monarch returns `cost_basis: 0.0`, not `null`, for basis-less accounts** (401(k), all 529s, 403(b), Coinbase). So the offline null-exclusion path never fires for this household's live data, and the ~$1M `gain_loss` total is an artifact (full value minus a defaulted zero). The tool is still correct — it passes Monarch's own `basis` through verbatim and computes `value − 0` honestly. We deliberately do NOT remap `0.0 → None`: that would invent a distinction Monarch doesn't provide (a true $0 basis, e.g. vested RSUs, is indistinguishable from unknown-defaulted-to-0) and would drop real data. Handled by documenting it as a known boundary (§5) and warning about it in the methodology string, so the narration always flags the artifact. See [[teamfrank-plan-north-star]]-style "can the data be trusted" surfacing — the honesty lives in the methodology + LLM layer, not in re-derived numbers.
+
 ---
 
 ## 5. Known boundaries
-- **Cost-basis-less holdings.** Manual or unlinked positions may have no `basis`; they count toward total value but not toward total cost basis / gain_loss, and carry no per-position `gain_loss`. Honest by construction — never a guessed basis.
+- **Cost-basis-less holdings — two shapes.** (1) When Monarch sends a *null* `basis`, the position counts toward total value but not toward total cost basis / gain_loss, and carries `gain_loss: null` — honest by construction, never a guessed basis. (2) **Live-observed (2026-08-11): Monarch far more often sends `basis: 0.0` (a real zero, not null)** for retirement, 529, 403(b), and aggregated/crypto accounts it has no basis for. Those positions therefore get a numeric `gain_loss = value − 0` and are INCLUDED in the totals, inflating the portfolio `gain_loss` toward full value. The tool does not and cannot distinguish this defaulted zero from a genuine $0 basis (e.g. fully-vested RSUs), so it passes Monarch's number through unchanged rather than inventing a distinction. Consequence: **treat portfolio `value` as reliable; treat the `gain_loss` total as indicative only.** The methodology string states this so the narration always surfaces it.
 - **`total_expected` is a window sum, not a run-rate.** A one-month window sums that month's recurring items; it is not normalized across frequencies. A "true monthly subscription burden" figure would be a derived normalization (out of scope).
 - **Holdings snapshot, not history.** `holdings_summary` is the current portfolio, not a time series. Position history would route through a future tool (analogous to `balance_history` for accounts).
 - **Fan-out cost.** Holdings issues one query per investment account. For this household that is a small number; if it ever grows large, a batched query is a later optimization.
