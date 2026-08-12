@@ -69,6 +69,12 @@ class FakeAdapter(MonarchAdapter):
     def get_recurring(self, start, end):
         return []
 
+    def recategorize_transaction(self, transaction_id, category_id):
+        # tests that exercise writes override/inspect this; default records the call
+        self.recategorized = getattr(self, "recategorized", [])
+        self.recategorized.append((transaction_id, category_id))
+        return True
+
     def source_name(self):
         return "fake"
 

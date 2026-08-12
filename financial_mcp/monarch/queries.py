@@ -282,3 +282,16 @@ GET_RECURRING = """
     }
   }
 """
+
+UPDATE_TRANSACTION_CATEGORY = """
+mutation Web_TransactionDrawerUpdateTransaction($input: UpdateTransactionMutationInput!) {
+  updateTransaction(input: $input) {
+    transaction {
+      id
+      category { id __typename }
+      __typename
+    }
+    __typename
+  }
+}
+"""

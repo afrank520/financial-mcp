@@ -105,3 +105,6 @@ class CsvAdapter(MonarchAdapter):
 
     def get_recurring(self, start: datetime.date, end: datetime.date) -> list[RecurringItem]:
         raise RuntimeError("recurring transactions are not available in CSV mode")
+
+    def recategorize_transaction(self, transaction_id: str, category_id: str) -> bool:
+        raise RuntimeError("writes are not available in CSV mode")

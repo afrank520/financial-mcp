@@ -77,6 +77,12 @@ class FakeAdapter(MonarchAdapter):
     def get_recurring(self, start, end):
         return []
 
+    def recategorize_transaction(self, transaction_id, category_id):
+        # tests that exercise writes override/inspect this; default records the call
+        self.recategorized = getattr(self, "recategorized", [])
+        self.recategorized.append((transaction_id, category_id))
+        return True
+
     def source_name(self):
         return "fake"
 
@@ -167,6 +173,11 @@ class _StubAdapter(MonarchAdapter):
     def get_budgets(self, start, end): return []
     def get_holdings(self): return []
     def get_recurring(self, start, end): return []
+    def recategorize_transaction(self, transaction_id, category_id):
+        # tests that exercise writes override/inspect this; default records the call
+        self.recategorized = getattr(self, "recategorized", [])
+        self.recategorized.append((transaction_id, category_id))
+        return True
 
 
 def test_balance_history_is_served_and_cached(tmp_path):
