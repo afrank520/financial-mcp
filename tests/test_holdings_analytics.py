@@ -62,6 +62,7 @@ def test_holdings_summary_gain_loss_totals_and_sort():
     assert out["totals"]["cost_basis"] == Decimal("4800")
     assert out["totals"]["gain_loss"] == Decimal("1200")
     assert out["methodology"].startswith("Values, cost basis, and day-change are Monarch's own.")
+    assert "inflates the gain_loss total" in out["methodology"]
 
 
 def test_holdings_summary_empty_has_no_totals_block():

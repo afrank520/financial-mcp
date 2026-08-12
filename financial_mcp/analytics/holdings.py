@@ -7,7 +7,11 @@ from financial_mcp.monarch.models import Holding
 METHODOLOGY = (
     "Values, cost basis, and day-change are Monarch's own. gain_loss is value "
     "minus cost basis (Monarch's own numbers); positions with no cost basis are "
-    "excluded from the cost-basis and gain_loss totals but still counted in total value."
+    "excluded from the cost-basis and gain_loss totals but still counted in total value. "
+    "Monarch often reports a cost basis of 0 (not null) for retirement, 529, and "
+    "aggregated accounts it has no basis for, so their gain_loss equals full value and "
+    "inflates the gain_loss total; treat total value as reliable and gain_loss as "
+    "indicative only."
 )
 
 
