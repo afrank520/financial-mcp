@@ -25,6 +25,7 @@ from financial_mcp.monarch.queries import (
     GET_HOLDINGS,
     GET_RECURRING,
     GET_TRANSACTIONS,
+    UPDATE_TRANSACTION_CATEGORY,
 )
 
 GRAPHQL_URL = "https://api.monarch.com/graphql"
@@ -340,3 +341,15 @@ class CommunityAdapter(MonarchAdapter):
                 is_past=bool(it.get("isPast")),
             ))
         return out
+
+    def recategorize_transaction(self, transaction_id: str, category_id: str) -> bool:
+        data = self._run(
+            self._transport(
+                "Web_TransactionDrawerUpdateTransaction",
+                UPDATE_TRANSACTION_CATEGORY,
+                {"input": {"id": transaction_id, "category": category_id}},
+            )
+        )
+        txn = (data.get("updateTransaction") or {}).get("transaction") or {}
+        applied = (txn.get("category") or {}).get("id")
+        return applied == category_id

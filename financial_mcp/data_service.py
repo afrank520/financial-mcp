@@ -104,6 +104,12 @@ class DataService:
             elif t == "holdings":
                 self.holdings()
 
+    def recategorize(self, transaction_id: str, category_id: str) -> bool:
+        applied = self._adapter.recategorize_transaction(transaction_id, category_id)
+        # A write makes the cached transactions stale — force a re-pull next read.
+        self._cache.invalidate("transactions")
+        return applied
+
     def freshness(self, data_type: str) -> dict:
         """Freshness metadata (as_of, age_seconds, fresh) for one data type."""
         return self._cache.freshness(data_type)

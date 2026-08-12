@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import datetime
+import uuid
 from decimal import Decimal
 
 from mcp.server.fastmcp import FastMCP
 
+from financial_mcp import writes
 from financial_mcp.analytics import balances, budgets, holdings, networth, recurring, savings, spending
 from financial_mcp.data_service import DataService
 from financial_mcp.monarch.community_adapter import CloudflareBlockedError, SessionExpiredError
@@ -24,7 +26,13 @@ def _clamp_limit(limit: int | None) -> int:
     return max(1, min(limit, MAX_TXN_ROWS))
 
 
-def build_server(svc: DataService) -> FastMCP:
+def build_server(
+    svc: DataService,
+    *,
+    write_mode: str = "off",
+    batch_cap: int = 200,
+    journal=None,
+) -> FastMCP:
     server = FastMCP("financial-mcp")
 
     def _dump(models) -> list[dict]:
@@ -69,6 +77,11 @@ def build_server(svc: DataService) -> FastMCP:
             return fn()
         except (SessionExpiredError, CloudflareBlockedError) as exc:
             return {"error": f"{exc}. Re-authenticate: financial-mcp-login"}
+
+    def _writes_enabled() -> str | None:
+        if write_mode == "off":
+            return "writes are disabled. Set write_mode to 'safe' or 'full' to enable."
+        return None
 
     @server.tool()
     def health_check() -> dict:
@@ -425,6 +438,179 @@ def build_server(svc: DataService) -> FastMCP:
         """
         svc.refresh(data_type)
         return {"refreshed": data_type or "all"}
+
+    @server.tool()
+    def recategorize_transaction(transaction_id: str, category: str) -> dict:
+        """Recategorize ONE transaction to an existing category (by name).
+
+        Fail-closed: the category name must match an existing Monarch category
+        exactly (case-insensitive) or the call refuses with the valid list. In
+        write_mode 'off' this refuses; in 'safe'/'full' it executes one-shot and
+        is reversible via undo_last. All figures pass through to Monarch as-is.
+        """
+        disabled = _writes_enabled()
+        if disabled:
+            return {"error": disabled}
+
+        def _run():
+            cats = svc.categories()
+            try:
+                target = writes.resolve_category(category, cats)
+            except writes.WriteError as exc:
+                return {"error": str(exc)}
+            txn = next((t for t in svc.transactions() if t.id == transaction_id), None)
+            if txn is None:
+                return {"error": f"No transaction with id {transaction_id!r}."}
+            old_matches = [c for c in cats if c.name.lower() == txn.category.lower()]
+            old_id = old_matches[0].id if len(old_matches) == 1 else None
+            batch_id = uuid.uuid4().hex
+            journal.record(batch_id, txn.id, old_id, txn.category, target.id, target.name)
+            applied = svc.recategorize(txn.id, target.id)
+            if applied:
+                journal.mark_succeeded(batch_id, txn.id)
+                return {"changed": 1, "from": txn.category, "to": target.name,
+                        "batch_id": batch_id, "undo_hint": "call undo_last to reverse"}
+            return {"changed": 0, "failed": 1,
+                    "failures": [{"transaction_id": txn.id, "reason": "Monarch did not apply the category"}]}
+
+        return _guard(_run)
+
+    @server.tool()
+    def recategorize_matching(
+        to_category: str,
+        merchant: str | None = None,
+        category: str | None = None,
+        min_amount: float | None = None,
+        max_amount: float | None = None,
+        start: str | None = None,
+        end: str | None = None,
+        confirm_token: str | None = None,
+    ) -> dict:
+        """Bulk-recategorize every transaction matching a filter to one category.
+
+        Filter mirrors search_transactions (merchant/category substrings +
+        amount range) plus an optional YYYY-MM-DD date window. In 'safe' mode
+        this is two-phase: call without confirm_token to preview (nothing
+        mutates) and get a confirm_token, then call again with that token to
+        execute. In 'full' mode it executes directly. Over the batch cap it
+        refuses (no truncation). Reversible via undo_last.
+        """
+        disabled = _writes_enabled()
+        if disabled:
+            return {"error": disabled}
+
+        s = e = None
+        if start is not None:
+            try:
+                s = datetime.date.fromisoformat(start)
+            except ValueError:
+                return {"error": "start must be YYYY-MM-DD"}
+        if end is not None:
+            try:
+                e = datetime.date.fromisoformat(end)
+            except ValueError:
+                return {"error": "end must be YYYY-MM-DD"}
+        if s and e and s > e:
+            return {"error": "start must not be after end"}
+
+        def _run():
+            cats = svc.categories()
+            try:
+                target = writes.resolve_category(to_category, cats)
+            except writes.WriteError as exc:
+                return {"error": str(exc)}
+            matched = writes.match_transactions(
+                svc.transactions(), merchant=merchant, category=category,
+                min_amount=None if min_amount is None else Decimal(str(min_amount)),
+                max_amount=None if max_amount is None else Decimal(str(max_amount)),
+                start=s, end=e,
+            )
+            if not matched:
+                return {"would_change": 0, "message": "no transactions matched"}
+            if len(matched) > batch_cap:
+                return {"error": f"{len(matched)} transactions match, over the batch cap "
+                                 f"of {batch_cap}. Narrow the filter or raise batch_cap."}
+            token = writes.compute_confirm_token([t.id for t in matched], target.id)
+
+            def _preview():
+                sample = [{"transaction_id": t.id, "date": t.date.isoformat(),
+                           "merchant": t.merchant, "amount": str(t.amount),
+                           "current_category": t.category} for t in matched[:20]]
+                return {"dry_run": True, "would_change": len(matched),
+                        "resolved_category": {"id": target.id, "name": target.name,
+                                              "group": target.group},
+                        "sample": sample, "confirm_token": token, "mode": write_mode}
+
+            if write_mode == "safe":
+                if confirm_token is None or confirm_token != token:
+                    return _preview()
+            # execute (safe+valid token, or full)
+            by_name = {}
+            for c in cats:
+                by_name.setdefault(c.name.lower(), []).append(c)
+            batch_id = uuid.uuid4().hex
+            changed = 0
+            failures = []
+            for t in matched:
+                oid_matches = by_name.get(t.category.lower(), [])
+                old_id = oid_matches[0].id if len(oid_matches) == 1 else None
+                journal.record(batch_id, t.id, old_id, t.category, target.id, target.name)
+                if svc.recategorize(t.id, target.id):
+                    journal.mark_succeeded(batch_id, t.id)
+                    changed += 1
+                else:
+                    failures.append({"transaction_id": t.id,
+                                     "reason": "Monarch did not apply the category"})
+            return {"changed": changed, "failed": len(failures),
+                    "failures": failures, "batch_id": batch_id, "to": target.name}
+
+        return _guard(_run)
+
+    @server.tool()
+    def undo_last() -> dict:
+        """Reverse the most recent recategorization batch (multi-level: call
+        again to step back to the previous one). Undo is a compensating write —
+        it re-sets each transaction to the category it had when the write ran; it
+        does not detect edits you made afterward. Refuses in write_mode 'off'.
+        """
+        disabled = _writes_enabled()
+        if disabled:
+            return {"error": disabled}
+
+        def _run():
+            batch_id = journal.last_undoable_batch()
+            if batch_id is None:
+                return {"reversed": 0, "message": "nothing to undo"}
+            rows = journal.undoable_rows(batch_id)
+            reverted = []
+            failures = []
+            for r in rows:
+                if svc.recategorize(r["transaction_id"], r["old_category_id"]):
+                    journal.mark_undone(batch_id, r["transaction_id"])
+                    reverted.append(r)
+                else:
+                    failures.append({"transaction_id": r["transaction_id"],
+                                     "reason": "Monarch did not apply the category"})
+            restored_names = {r["old_category_name"] for r in reverted}
+            if len(restored_names) == 1:
+                restored_to = restored_names.pop()
+            elif reverted:
+                restored_to = f"{len(reverted)} transactions"
+            else:
+                restored_to = ""
+            return {"reversed": len(reverted), "failed": len(failures),
+                    "failures": failures, "batch_id": batch_id,
+                    "restored_to": restored_to}
+
+        return _guard(_run)
+
+    @server.tool()
+    def undo_history() -> dict:
+        """Show the reversible recategorization batches, newest first: each with a
+        summary (e.g. 'Uncategorized→Shopping ×12'), count, when, and whether it
+        has already been undone.
+        """
+        return _guard(lambda: {"history": journal.history()})
 
     return server
 
