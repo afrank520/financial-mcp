@@ -1107,3 +1107,88 @@ def test_undo_last_multi_level_steps_to_prior_batch(tmp_path):
     assert second["reversed"] == 1
     assert second["batch_id"] == batch1
     assert journal.last_undoable_batch() is None
+
+
+class PartialFailUndoAdapter(BulkRecatAdapter):
+    """Forward writes (to 'shop') always succeed so the batch journals both
+    rows as undoable. The compensating write undo_last issues (back to
+    'uncat') returns False for tx2 while `fail_tx2` is set — simulating
+    Monarch accepting the call but not applying the restored category for
+    one row of the batch."""
+
+    def __init__(self):
+        self.fail_tx2 = True
+
+    def recategorize_transaction(self, transaction_id, category_id):
+        self.recategorized = getattr(self, "recategorized", [])
+        self.recategorized.append((transaction_id, category_id))
+        if transaction_id == "tx2" and category_id == "uncat" and self.fail_tx2:
+            return False
+        return True
+
+
+def test_undo_last_partial_failure_reports_honestly_and_retains_open_row(tmp_path):
+    from financial_mcp.cache.undo_journal import UndoJournal
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    adapter = PartialFailUndoAdapter()
+    svc = DataService(adapter, cache)
+    journal = UndoJournal(str(tmp_path / "j.db"))
+    server = build_server(svc, write_mode="full", batch_cap=200, journal=journal)
+    recat = _tool(server, "recategorize_matching")
+    undo = _tool(server, "undo_last")
+
+    # Forward batch: tx1, tx2 Uncategorized -> Shopping (adapter reverts fine
+    # forward -- only the undo-direction compensating write fails for tx2).
+    recat(to_category="Shopping", merchant="Amazon")
+    batch_id = journal.last_undoable_batch()
+    adapter.recategorized.clear()
+
+    out = undo()
+
+    assert out["reversed"] == 1
+    assert out["failed"] == 1
+    assert out["failures"] == [
+        {"transaction_id": "tx2", "reason": "Monarch did not apply the category"}
+    ]
+    assert out["batch_id"] == batch_id
+    assert out["restored_to"] == "Uncategorized"
+
+    # The reverted row (tx1) is now closed; the failed row (tx2) stays open
+    # and the batch remains undoable so a retry can target it.
+    assert journal.last_undoable_batch() == batch_id
+    open_rows = journal.undoable_rows(batch_id)
+    assert [r["transaction_id"] for r in open_rows] == ["tx2"]
+
+
+def test_undo_last_retry_after_partial_failure_finishes_the_batch(tmp_path):
+    from financial_mcp.cache.undo_journal import UndoJournal
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    adapter = PartialFailUndoAdapter()
+    svc = DataService(adapter, cache)
+    journal = UndoJournal(str(tmp_path / "j.db"))
+    server = build_server(svc, write_mode="full", batch_cap=200, journal=journal)
+    recat = _tool(server, "recategorize_matching")
+    undo = _tool(server, "undo_last")
+
+    recat(to_category="Shopping", merchant="Amazon")
+    batch_id = journal.last_undoable_batch()
+
+    first = undo()
+    assert first["reversed"] == 1
+    assert first["failed"] == 1
+
+    # Monarch now applies the compensating write fine on retry.
+    adapter.fail_tx2 = False
+    adapter.recategorized.clear()
+
+    second = undo()
+
+    assert second["reversed"] == 1
+    assert second["failed"] == 0
+    assert second["failures"] == []
+    assert second["batch_id"] == batch_id
+    assert second["restored_to"] == "Uncategorized"
+    assert adapter.recategorized == [("tx2", "uncat")]
+    assert journal.last_undoable_batch() is None

@@ -582,14 +582,25 @@ def build_server(
             if batch_id is None:
                 return {"reversed": 0, "message": "nothing to undo"}
             rows = journal.undoable_rows(batch_id)
-            reversed_ = 0
+            reverted = []
+            failures = []
             for r in rows:
                 if svc.recategorize(r["transaction_id"], r["old_category_id"]):
-                    reversed_ += 1
-            journal.mark_undone(batch_id)
-            summary = rows[0]["old_category_name"] if rows else ""
-            return {"reversed": reversed_, "batch_id": batch_id,
-                    "restored_to": summary}
+                    journal.mark_undone(batch_id, r["transaction_id"])
+                    reverted.append(r)
+                else:
+                    failures.append({"transaction_id": r["transaction_id"],
+                                     "reason": "Monarch did not apply the category"})
+            restored_names = {r["old_category_name"] for r in reverted}
+            if len(restored_names) == 1:
+                restored_to = restored_names.pop()
+            elif reverted:
+                restored_to = f"{len(reverted)} transactions"
+            else:
+                restored_to = ""
+            return {"reversed": len(reverted), "failed": len(failures),
+                    "failures": failures, "batch_id": batch_id,
+                    "restored_to": restored_to}
 
         return _guard(_run)
 

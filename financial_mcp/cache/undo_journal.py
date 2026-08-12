@@ -76,10 +76,21 @@ class UndoJournal:
             for r in rows
         ]
 
-    def mark_undone(self, batch_id) -> None:
-        self._conn.execute(
-            "UPDATE write_journal SET undone=1 WHERE batch_id=?", (batch_id,)
-        )
+    def mark_undone(self, batch_id, transaction_id=None) -> None:
+        """Mark rows as reversed. With `transaction_id=None` (default), marks
+        every row in the batch (whole-batch close). With a `transaction_id`,
+        marks ONLY that row — used when a compensating write succeeds for one
+        row of a batch but not others, so the still-open rows remain undoable
+        and can be retried on a subsequent `undo_last` call."""
+        if transaction_id is None:
+            self._conn.execute(
+                "UPDATE write_journal SET undone=1 WHERE batch_id=?", (batch_id,)
+            )
+        else:
+            self._conn.execute(
+                "UPDATE write_journal SET undone=1 WHERE batch_id=? AND transaction_id=?",
+                (batch_id, transaction_id),
+            )
         self._conn.commit()
 
     def history(self, limit: int = 20) -> list[dict]:
