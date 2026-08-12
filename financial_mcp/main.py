@@ -4,6 +4,7 @@ import logging
 import os
 
 from financial_mcp.cache.sqlite_cache import SqliteCache
+from financial_mcp.cache.undo_journal import UndoJournal
 from financial_mcp.config import Config, load_config
 from financial_mcp.data_service import DataService
 from financial_mcp.mcp_server import build_server
@@ -44,7 +45,8 @@ def main() -> None:
     svc = DataService(adapter, cache)
     logger.info("financial-mcp starting (source=%s)", adapter.source_name())
 
-    server = build_server(svc)
+    journal = UndoJournal(cfg.db_path)
+    server = build_server(svc, write_mode=cfg.write_mode, batch_cap=cfg.batch_cap, journal=journal)
     server.run()
 
 

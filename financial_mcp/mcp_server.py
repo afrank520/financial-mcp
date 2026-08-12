@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import datetime
+import uuid
 from decimal import Decimal
 
 from mcp.server.fastmcp import FastMCP
 
+from financial_mcp import writes
 from financial_mcp.analytics import balances, budgets, holdings, networth, recurring, savings, spending
 from financial_mcp.data_service import DataService
 from financial_mcp.monarch.community_adapter import CloudflareBlockedError, SessionExpiredError
@@ -24,7 +26,13 @@ def _clamp_limit(limit: int | None) -> int:
     return max(1, min(limit, MAX_TXN_ROWS))
 
 
-def build_server(svc: DataService) -> FastMCP:
+def build_server(
+    svc: DataService,
+    *,
+    write_mode: str = "off",
+    batch_cap: int = 200,
+    journal=None,
+) -> FastMCP:
     server = FastMCP("financial-mcp")
 
     def _dump(models) -> list[dict]:
@@ -69,6 +77,11 @@ def build_server(svc: DataService) -> FastMCP:
             return fn()
         except (SessionExpiredError, CloudflareBlockedError) as exc:
             return {"error": f"{exc}. Re-authenticate: financial-mcp-login"}
+
+    def _writes_enabled() -> str | None:
+        if write_mode == "off":
+            return "writes are disabled. Set write_mode to 'safe' or 'full' to enable."
+        return None
 
     @server.tool()
     def health_check() -> dict:
@@ -425,6 +438,42 @@ def build_server(svc: DataService) -> FastMCP:
         """
         svc.refresh(data_type)
         return {"refreshed": data_type or "all"}
+
+    @server.tool()
+    def recategorize_transaction(transaction_id: str, category: str) -> dict:
+        """Recategorize ONE transaction to an existing category (by name).
+
+        Fail-closed: the category name must match an existing Monarch category
+        exactly (case-insensitive) or the call refuses with the valid list. In
+        write_mode 'off' this refuses; in 'safe'/'full' it executes one-shot and
+        is reversible via undo_last. All figures pass through to Monarch as-is.
+        """
+        disabled = _writes_enabled()
+        if disabled:
+            return {"error": disabled}
+
+        def _run():
+            cats = svc.categories()
+            try:
+                target = writes.resolve_category(category, cats)
+            except writes.WriteError as exc:
+                return {"error": str(exc)}
+            txn = next((t for t in svc.transactions() if t.id == transaction_id), None)
+            if txn is None:
+                return {"error": f"No transaction with id {transaction_id!r}."}
+            old_matches = [c for c in cats if c.name.lower() == txn.category.lower()]
+            old_id = old_matches[0].id if len(old_matches) == 1 else None
+            batch_id = uuid.uuid4().hex
+            journal.record(batch_id, txn.id, old_id, txn.category, target.id, target.name)
+            applied = svc.recategorize(txn.id, target.id)
+            if applied:
+                journal.mark_succeeded(batch_id, txn.id)
+                return {"changed": 1, "from": txn.category, "to": target.name,
+                        "batch_id": batch_id, "undo_hint": "call undo_last to reverse"}
+            return {"changed": 0, "failed": 1,
+                    "failures": [{"transaction_id": txn.id, "reason": "Monarch did not apply the category"}]}
+
+        return _guard(_run)
 
     return server
 

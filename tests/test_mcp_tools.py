@@ -735,3 +735,91 @@ def test_recurring_summary_tool_rejects_bad_dates(tmp_path):
     server = build_server(svc)
     assert _tool(server, "recurring_summary")("nope", "2026-06-30") == {"error": "start must be YYYY-MM-DD"}
     assert _tool(server, "recurring_summary")("2026-06-30", "2026-06-01")["error"] == "start must not be after end"
+
+
+# ---------------------------------------------------------------------------
+# recategorize_transaction (single-transaction write tool)
+# ---------------------------------------------------------------------------
+
+
+class RecatAdapter(FakeAdapter):
+    """One known-id transaction currently 'Uncategorized', plus a target
+    category ('Shopping') distinct from its current one — needed to exercise
+    real category resolution (fail-closed) and old-category lookup."""
+
+    def get_transactions(self):
+        d = datetime.date(2026, 1, 2)
+        return [
+            Transaction(
+                id="tx1",
+                date=d,
+                merchant="Costco",
+                category="Uncategorized",
+                account="Checking",
+                original_statement="COSTCO",
+                notes="",
+                amount=Decimal("-5.00"),
+                tags=[],
+                owner="A",
+            )
+        ]
+
+    def get_categories(self):
+        from financial_mcp.monarch.models import Category
+
+        return [
+            Category(id="uncat", name="Uncategorized", group="Other"),
+            Category(id="shop", name="Shopping", group="Discretionary"),
+        ]
+
+
+def _recat_service(tmp_path):
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    return DataService(RecatAdapter(), cache)
+
+
+def test_recategorize_off_mode_refuses(tmp_path):
+    from financial_mcp.cache.undo_journal import UndoJournal
+
+    svc = _recat_service(tmp_path)
+    journal = UndoJournal(str(tmp_path / "j.db"))
+    server = build_server(svc, write_mode="off", batch_cap=200, journal=journal)
+    tool = _tool(server, "recategorize_transaction")
+    out = tool(transaction_id="tx1", category="Shopping")
+    assert "disabled" in out["error"]
+    # Refuses before any resolution/network call — adapter never recorded a write.
+    assert not getattr(svc._adapter, "recategorized", [])
+
+
+def test_recategorize_safe_mode_one_shot_records_and_invalidates(tmp_path):
+    from financial_mcp.cache.undo_journal import UndoJournal
+
+    svc = _recat_service(tmp_path)
+    journal = UndoJournal(str(tmp_path / "j.db"))
+    server = build_server(svc, write_mode="safe", batch_cap=200, journal=journal)
+    tool = _tool(server, "recategorize_transaction")
+
+    out = tool(transaction_id="tx1", category="Shopping")
+
+    assert out["changed"] == 1
+    assert out["from"] == "Uncategorized"
+    assert out["to"] == "Shopping"
+    assert "batch_id" in out and "undo_hint" in out
+    assert svc._adapter.recategorized == [("tx1", "shop")]
+    assert journal.last_undoable_batch() == out["batch_id"]
+
+
+def test_recategorize_bad_category_refuses_with_valid_list(tmp_path):
+    from financial_mcp.cache.undo_journal import UndoJournal
+
+    svc = _recat_service(tmp_path)
+    journal = UndoJournal(str(tmp_path / "j.db"))
+    server = build_server(svc, write_mode="safe", batch_cap=200, journal=journal)
+    tool = _tool(server, "recategorize_transaction")
+
+    out = tool(transaction_id="tx1", category="Nonexistent")
+
+    assert "Nonexistent" in out["error"]
+    assert "Shopping" in out["error"]
+    # Fail-closed: no write attempted.
+    assert not getattr(svc._adapter, "recategorized", [])
