@@ -61,18 +61,28 @@ DEFAULT_CATEGORY_ICON = "🏷️"
 
 
 def resolve_group(name: str, categories: list[Category]) -> tuple[str, str]:
-    """Exact case-insensitive group name -> (group_id, group_name). Fail-closed."""
-    by_name = {}
+    """Exact case-insensitive group name -> (group_id, group_name). Fail-closed
+    on miss OR ambiguity (same case-insensitive name mapping to more than one
+    distinct group_id). Multiple categories sharing the SAME group_id is the
+    normal case and still resolves fine."""
+    by_name: dict[str, dict[str, str]] = {}
     for c in categories:
         if c.group and c.group_id:
-            by_name.setdefault(c.group.lower(), (c.group_id, c.group))
-    hit = by_name.get(name.lower())
-    if hit:
-        return hit
-    valid = ", ".join(sorted({c.group for c in categories if c.group}))
-    raise WriteError(
-        f"No category group named {name!r}. Pick an existing group: {valid}"
-    )
+            by_name.setdefault(c.group.lower(), {})[c.group_id] = c.group
+    matches = by_name.get(name.lower())
+    if not matches:
+        valid = ", ".join(sorted({c.group for c in categories if c.group}))
+        raise WriteError(
+            f"No category group named {name!r}. Pick an existing group: {valid}"
+        )
+    if len(matches) > 1:
+        ids = "; ".join(f"{gname!r} (group_id: {gid})" for gid, gname in matches.items())
+        raise WriteError(
+            f"Category group name {name!r} is ambiguous — it maps to {len(matches)} "
+            f"distinct group ids: {ids}. Disambiguate before writing."
+        )
+    ((group_id, group_name),) = matches.items()
+    return group_id, group_name
 
 
 def check_name_available(name: str, categories: list[Category]) -> None:

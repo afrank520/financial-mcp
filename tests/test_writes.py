@@ -85,6 +85,25 @@ def test_resolve_group_miss_lists_valid_groups():
     assert "Food & Dining" in str(exc.value)
 
 
+def test_resolve_group_same_group_multiple_categories_still_resolves():
+    # Guard against over-triggering: two categories in the SAME group (same
+    # group_id) is the normal case, not ambiguity. _cats() already has
+    # Groceries + Restaurants both under "Food & Dining" / "g1".
+    assert writes.resolve_group("Food & Dining", _cats()) == ("g1", "Food & Dining")
+
+
+def test_resolve_group_ambiguous_same_name_different_ids_refuses():
+    cats = [
+        Category(id="c1", name="Groceries", group="Travel", group_id="g10"),
+        Category(id="c2", name="Flights", group="travel", group_id="g20"),
+    ]
+    with pytest.raises(writes.WriteError) as exc:
+        writes.resolve_group("Travel", cats)
+    msg = str(exc.value)
+    assert "Travel" in msg or "travel" in msg
+    assert "g10" in msg and "g20" in msg
+
+
 def test_check_name_available_raises_when_taken():
     with pytest.raises(writes.WriteError):
         writes.check_name_available("groceries", _cats())

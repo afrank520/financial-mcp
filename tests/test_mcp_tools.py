@@ -1335,3 +1335,90 @@ def test_rename_category_new_name_taken_refuses(tmp_path):
     # 'Groceries' and 'Restaurants' both exist in the stub; renaming to an existing name refuses.
     out = _tool(server, "rename_category")(name="Groceries", new_name="Restaurants")
     assert "already exists" in out["error"]
+
+
+# ---------------------------------------------------------------------------
+# undo_last multi-level dispatch across MIXED op types (spec §9) — one journal,
+# one server, a rename batch AND a recategorize batch, stepped back through
+# by successive undo_last calls in seq DESC order.
+# ---------------------------------------------------------------------------
+
+
+class MixedOpsAdapter(CategoryCrudAdapter):
+    """CategoryCrudAdapter (create/rename) plus one real transaction so the
+    SAME adapter/server/journal can also exercise recategorize_transaction —
+    needed to prove undo_last dispatches correctly across batches of
+    DIFFERENT op types sharing one journal."""
+
+    def get_transactions(self):
+        return [
+            Transaction(
+                id="tx1",
+                date=datetime.date(2026, 1, 2),
+                merchant="Costco",
+                category="Groceries",
+                account="Checking",
+                original_statement="COSTCO",
+                notes="",
+                amount=Decimal("-5.00"),
+                tags=[],
+                owner="A",
+            )
+        ]
+
+    def recategorize_transaction(self, transaction_id, category_id):
+        self.recategorized = getattr(self, "recategorized", [])
+        self.recategorized.append((transaction_id, category_id))
+        return True
+
+
+def _mixed_ops_server(tmp_path, write_mode="full", batch_cap=200):
+    from financial_mcp.cache.undo_journal import UndoJournal
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    adapter = MixedOpsAdapter()
+    svc = DataService(adapter, cache)
+    journal = UndoJournal(str(tmp_path / "j.db"))
+    server = build_server(svc, write_mode=write_mode, batch_cap=batch_cap, journal=journal)
+    return svc, journal, server
+
+
+def test_undo_last_multi_level_dispatch_across_mixed_op_types(tmp_path):
+    svc, journal, server = _mixed_ops_server(tmp_path)
+    rename = _tool(server, "rename_category")
+    recat = _tool(server, "recategorize_transaction")
+    undo = _tool(server, "undo_last")
+
+    # Batch A (older): rename_category — Groceries -> Food.
+    rename_out = rename(name="Groceries", new_name="Food")
+    assert rename_out["renamed"] == 1
+    batch_a = rename_out["batch_id"]
+
+    # Batch B (newer): recategorize_transaction — tx1 Groceries -> Restaurants.
+    recat_out = recat(transaction_id="tx1", category="Restaurants")
+    assert recat_out["changed"] == 1
+    batch_b = recat_out["batch_id"]
+
+    assert journal.last_undoable_batch() == batch_b
+
+    # First undo_last reverses the NEWEST batch first (seq DESC) — the
+    # recategorize, even though a rename op exists earlier in the journal.
+    first = undo()
+    assert first["batch_id"] == batch_b
+    assert first["reversed"] == 1
+    assert first["restored_to"] == "Groceries"
+    assert svc._adapter.recategorized[-1] == ("tx1", "c1")
+    assert journal.last_undoable_batch() == batch_a
+
+    # Second undo_last reverses the OLDER batch — the rename — via the
+    # correct compensating write for ITS op type.
+    second = undo()
+    assert second["batch_id"] == batch_a
+    assert second["reversed"] == 1
+    assert second["restored_to"] == "Groceries"
+    assert svc._adapter.renamed[-1] == ("c1", "Groceries")
+    assert journal.last_undoable_batch() is None
+
+    # Nothing left to undo.
+    third = undo()
+    assert third == {"reversed": 0, "message": "nothing to undo"}
