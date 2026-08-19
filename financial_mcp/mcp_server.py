@@ -567,6 +567,36 @@ def build_server(
         return _guard(_run)
 
     @server.tool()
+    def create_category(name: str, group: str) -> dict:
+        """Create a NEW category inside an existing category group (by name).
+
+        Fail-closed: the group must exist (else refuses with the valid list) and
+        the new name must not already exist. Refuses in write_mode 'off'; one-shot
+        in 'safe'/'full'. Note: creating a category is recorded in undo_history but
+        is NOT auto-undoable this slice (undo would require deleting it) — remove an
+        unwanted empty category in Monarch.
+        """
+        disabled = _writes_enabled()
+        if disabled:
+            return {"error": disabled}
+
+        def _run():
+            cats = svc.categories()
+            try:
+                group_id, group_name = writes.resolve_group(group, cats)
+                writes.check_name_available(name, cats)
+            except writes.WriteError as exc:
+                return {"error": str(exc)}
+            new_id = svc.create_category(name, group_id, writes.DEFAULT_CATEGORY_ICON)
+            batch_id = uuid.uuid4().hex
+            journal.record(batch_id, "create_category", new_id, None, name, None, name)
+            journal.mark_succeeded(batch_id, new_id)
+            return {"created": 1, "id": new_id, "name": name, "group": group_name,
+                    "note": "creates aren't auto-undoable; delete in Monarch if unwanted"}
+
+        return _guard(_run)
+
+    @server.tool()
     def undo_last() -> dict:
         """Reverse the most recent recategorization batch (multi-level: call
         again to step back to the previous one). Undo is a compensating write —

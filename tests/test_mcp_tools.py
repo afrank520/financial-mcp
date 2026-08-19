@@ -1198,3 +1198,108 @@ def test_undo_last_retry_after_partial_failure_finishes_the_batch(tmp_path):
     assert second["restored_to"] == "Uncategorized"
     assert adapter.recategorized == [("tx2", "uncat")]
     assert journal.last_undoable_batch() is None
+
+
+class CategoryCrudAdapter(MonarchAdapter):
+    """Stub adapter for create_category/rename_category tool tests (Task 4/5).
+
+    get_categories() returns two categories in the same group so Task 5's
+    rename-collision tests have something to collide with. create_category
+    always returns "newcat". rename_category records the last-applied name
+    and always reports success, so undo can re-invoke it to restore the old
+    name.
+    """
+
+    def get_transactions(self):
+        return []
+
+    def get_balances(self):
+        return []
+
+    def get_accounts(self):
+        return []
+
+    def get_balance_history(self):
+        return []
+
+    def get_cashflow(self, start, end):
+        return Cashflow(
+            start=start, end=end,
+            income=Decimal("0"), expense=Decimal("0"),
+            savings=Decimal("0"), savings_rate_monarch=Decimal("0"),
+        )
+
+    def get_networth_history(self):
+        return []
+
+    def get_categories(self):
+        from financial_mcp.monarch.models import Category
+
+        return [
+            Category(id="c1", name="Groceries", group="Food & Dining", group_id="g1"),
+            Category(id="c2", name="Restaurants", group="Food & Dining", group_id="g1"),
+        ]
+
+    def get_budgets(self, start, end):
+        return []
+
+    def get_holdings(self):
+        return []
+
+    def get_recurring(self, start, end):
+        return []
+
+    def recategorize_transaction(self, transaction_id, category_id):
+        return True
+
+    def create_category(self, name, group_id, icon):
+        self.created = getattr(self, "created", [])
+        self.created.append((name, group_id, icon))
+        return "newcat"
+
+    def rename_category(self, category_id, new_name):
+        self.renamed = getattr(self, "renamed", [])
+        self.renamed.append((category_id, new_name))
+        return True
+
+    def source_name(self):
+        return "fake"
+
+
+def _category_server(tmp_path, write_mode="safe", batch_cap=200):
+    """Shared helper for create_category (Task 4) and rename_category (Task 5) tool tests."""
+    from financial_mcp.cache.undo_journal import UndoJournal
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(CategoryCrudAdapter(), cache)
+    journal = UndoJournal(str(tmp_path / "j.db"))
+    server = build_server(svc, write_mode=write_mode, batch_cap=batch_cap, journal=journal)
+    return server, journal
+
+
+def test_create_category_off_mode_refuses(tmp_path):
+    server, _ = _category_server(tmp_path, write_mode="off")
+    out = _tool(server, "create_category")(name="Vacations", group="Food & Dining")
+    assert "disabled" in out["error"]
+
+
+def test_create_category_safe_mode_creates_and_journals(tmp_path):
+    server, journal = _category_server(tmp_path, write_mode="safe")
+    out = _tool(server, "create_category")(name="Vacations", group="Food & Dining")
+    assert out["created"] == 1
+    assert out["name"] == "Vacations"
+    assert out["group"] == "Food & Dining"
+    assert journal.history()[0]["summary"] == "＋Vacations (created) ×1"
+    assert journal.last_undoable_batch() is None  # create is not auto-undoable
+
+
+def test_create_category_unknown_group_refuses(tmp_path):
+    server, _ = _category_server(tmp_path, write_mode="full")
+    out = _tool(server, "create_category")(name="Vacations", group="Nope")
+    assert "group" in out["error"].lower()
+
+
+def test_create_category_duplicate_name_refuses(tmp_path):
+    server, _ = _category_server(tmp_path, write_mode="full")
+    out = _tool(server, "create_category")(name="Groceries", group="Food & Dining")
+    assert "already exists" in out["error"]
