@@ -83,6 +83,12 @@ class FakeAdapter(MonarchAdapter):
         self.recategorized.append((transaction_id, category_id))
         return True
 
+    def create_category(self, name, group_id, icon):
+        raise NotImplementedError("not exercised by these tests")
+
+    def rename_category(self, category_id, new_name):
+        raise NotImplementedError("not exercised by these tests")
+
     def source_name(self):
         return "fake"
 
@@ -178,6 +184,10 @@ class _StubAdapter(MonarchAdapter):
         self.recategorized = getattr(self, "recategorized", [])
         self.recategorized.append((transaction_id, category_id))
         return True
+    def create_category(self, name, group_id, icon):
+        raise NotImplementedError("not exercised by these tests")
+    def rename_category(self, category_id, new_name):
+        raise NotImplementedError("not exercised by these tests")
 
 
 def test_balance_history_is_served_and_cached(tmp_path):

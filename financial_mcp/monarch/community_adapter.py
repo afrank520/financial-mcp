@@ -15,6 +15,7 @@ from financial_mcp.monarch.models import (
     RecurringItem, Transaction,
 )
 from financial_mcp.monarch.queries import (
+    CREATE_CATEGORY,
     GET_ACCOUNT_SNAPSHOTS,
     GET_ACCOUNTS,
     GET_ACCOUNTS_MIN,
@@ -25,6 +26,7 @@ from financial_mcp.monarch.queries import (
     GET_HOLDINGS,
     GET_RECURRING,
     GET_TRANSACTIONS,
+    UPDATE_CATEGORY,
     UPDATE_TRANSACTION_CATEGORY,
 )
 
@@ -256,6 +258,7 @@ class CommunityAdapter(MonarchAdapter):
                 id=c["id"],
                 name=c["name"],
                 group=(c.get("group") or {}).get("name"),
+                group_id=(c.get("group") or {}).get("id"),
                 group_type=(c.get("group") or {}).get("type"),
             )
             for c in data.get("categories") or []
@@ -353,3 +356,26 @@ class CommunityAdapter(MonarchAdapter):
         txn = (data.get("updateTransaction") or {}).get("transaction") or {}
         applied = (txn.get("category") or {}).get("id")
         return applied == category_id
+
+    def create_category(self, name: str, group_id: str, icon: str) -> str:
+        data = self._run(
+            self._transport(
+                "CreateCategory", CREATE_CATEGORY,
+                {"input": {"group": group_id, "name": name, "icon": icon}},
+            )
+        )
+        cat = (data.get("createCategory") or {}).get("category") or {}
+        new_id = cat.get("id")
+        if not new_id:
+            raise RuntimeError(f"Monarch did not create category {name!r}")
+        return new_id
+
+    def rename_category(self, category_id: str, new_name: str) -> bool:
+        data = self._run(
+            self._transport(
+                "UpdateCategory", UPDATE_CATEGORY,
+                {"input": {"id": category_id, "name": new_name}},
+            )
+        )
+        cat = (data.get("updateCategory") or {}).get("category") or {}
+        return cat.get("name") == new_name

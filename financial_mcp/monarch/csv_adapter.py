@@ -108,3 +108,9 @@ class CsvAdapter(MonarchAdapter):
 
     def recategorize_transaction(self, transaction_id: str, category_id: str) -> bool:
         raise RuntimeError("writes are not available in CSV mode")
+
+    def create_category(self, name: str, group_id: str, icon: str) -> str:
+        raise RuntimeError("writes are not available in CSV mode")
+
+    def rename_category(self, category_id: str, new_name: str) -> bool:
+        raise RuntimeError("writes are not available in CSV mode")
