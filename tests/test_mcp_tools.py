@@ -1303,3 +1303,35 @@ def test_create_category_duplicate_name_refuses(tmp_path):
     server, _ = _category_server(tmp_path, write_mode="full")
     out = _tool(server, "create_category")(name="Groceries", group="Food & Dining")
     assert "already exists" in out["error"]
+
+
+def test_rename_category_off_mode_refuses(tmp_path):
+    server, _ = _category_server(tmp_path, write_mode="off")
+    out = _tool(server, "rename_category")(name="Groceries", new_name="Food")
+    assert "disabled" in out["error"]
+
+
+def test_rename_category_safe_mode_renames_and_is_undoable(tmp_path):
+    server, journal = _category_server(tmp_path, write_mode="safe")
+    out = _tool(server, "rename_category")(name="Groceries", new_name="Food")
+    assert out["renamed"] == 1
+    assert out["from"] == "Groceries"
+    assert out["to"] == "Food"
+    assert journal.last_undoable_batch() == out["batch_id"]
+
+    undo = _tool(server, "undo_last")()
+    assert undo["reversed"] == 1
+    assert undo["restored_to"] == "Groceries"
+
+
+def test_rename_category_unknown_source_refuses(tmp_path):
+    server, _ = _category_server(tmp_path, write_mode="full")
+    out = _tool(server, "rename_category")(name="Nope", new_name="Food")
+    assert "No category named" in out["error"]
+
+
+def test_rename_category_new_name_taken_refuses(tmp_path):
+    server, _ = _category_server(tmp_path, write_mode="full")
+    # 'Groceries' and 'Restaurants' both exist in the stub; renaming to an existing name refuses.
+    out = _tool(server, "rename_category")(name="Groceries", new_name="Restaurants")
+    assert "already exists" in out["error"]

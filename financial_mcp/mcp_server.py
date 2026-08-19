@@ -597,11 +597,45 @@ def build_server(
         return _guard(_run)
 
     @server.tool()
+    def rename_category(name: str, new_name: str) -> dict:
+        """Rename an existing category (by name) to a new name.
+
+        Fail-closed: the source category must match exactly (case-insensitive) and
+        the new name must not already exist. A rename applies everywhere the category
+        is referenced (transactions, budgets, rules) — it is not a local edit — but is
+        cleanly reversible via undo_last. Refuses in write_mode 'off'; one-shot otherwise.
+        """
+        disabled = _writes_enabled()
+        if disabled:
+            return {"error": disabled}
+
+        def _run():
+            cats = svc.categories()
+            try:
+                src = writes.resolve_category(name, cats)
+                writes.check_name_available(new_name, cats)
+            except writes.WriteError as exc:
+                return {"error": str(exc)}
+            batch_id = uuid.uuid4().hex
+            journal.record(batch_id, "rename_category", src.id, src.name,
+                           new_name, src.name, new_name)
+            if svc.rename_category(src.id, new_name):
+                journal.mark_succeeded(batch_id, src.id)
+                return {"renamed": 1, "from": src.name, "to": new_name,
+                        "batch_id": batch_id, "undo_hint": "call undo_last to reverse"}
+            return {"renamed": 0, "failed": 1,
+                    "failures": [{"category_id": src.id,
+                                  "reason": "Monarch did not apply the rename"}]}
+
+        return _guard(_run)
+
+    @server.tool()
     def undo_last() -> dict:
-        """Reverse the most recent recategorization batch (multi-level: call
-        again to step back to the previous one). Undo is a compensating write —
-        it re-sets each transaction to the category it had when the write ran; it
-        does not detect edits you made afterward. Refuses in write_mode 'off'.
+        """Reverse the most recent recategorization or category-rename batch
+        (multi-level: call again to step back to the previous one). Undo is a
+        compensating write — it re-sets each item to the value it had when the
+        write ran; it does not detect edits you made afterward. Refuses in
+        write_mode 'off'.
         """
         disabled = _writes_enabled()
         if disabled:
@@ -617,14 +651,20 @@ def build_server(
             for r in rows:
                 if r["op_type"] == "recategorize":
                     ok = svc.recategorize(r["target_id"], r["old_value"])
+                elif r["op_type"] == "rename_category":
+                    ok = svc.rename_category(r["target_id"], r["old_value"])
                 else:
                     ok = False
                 if ok:
                     journal.mark_undone(batch_id, r["target_id"])
                     reverted.append(r)
                 else:
-                    failures.append({"transaction_id": r["target_id"],
-                                     "reason": "Monarch did not apply the category"})
+                    if r["op_type"] == "recategorize":
+                        failures.append({"transaction_id": r["target_id"],
+                                         "reason": "Monarch did not apply the category"})
+                    else:
+                        failures.append({"category_id": r["target_id"],
+                                         "reason": "Monarch did not apply the rename"})
             restored_names = {r["label_old"] for r in reverted}
             if len(restored_names) == 1:
                 restored_to = restored_names.pop()
@@ -640,9 +680,9 @@ def build_server(
 
     @server.tool()
     def undo_history() -> dict:
-        """Show the reversible recategorization batches, newest first: each with a
-        summary (e.g. 'Uncategorized→Shopping ×12'), count, when, and whether it
-        has already been undone.
+        """Show the reversible recategorization or category-rename batches, newest
+        first: each with a summary (e.g. 'Uncategorized→Shopping ×12'), count, when,
+        and whether it has already been undone.
         """
         return _guard(lambda: {"history": journal.history()})
 

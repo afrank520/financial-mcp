@@ -115,6 +115,13 @@ class DataService:
         self._cache.invalidate("categories")
         return new_id
 
+    def rename_category(self, category_id: str, new_name: str) -> bool:
+        applied = self._adapter.rename_category(category_id, new_name)
+        # A rename changes the category name that rides on cached transactions.
+        self._cache.invalidate("categories")
+        self._cache.invalidate("transactions")
+        return applied
+
     def freshness(self, data_type: str) -> dict:
         """Freshness metadata (as_of, age_seconds, fresh) for one data type."""
         return self._cache.freshness(data_type)
