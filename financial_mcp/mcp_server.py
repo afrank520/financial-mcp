@@ -464,7 +464,7 @@ def build_server(
             old_matches = [c for c in cats if c.name.lower() == txn.category.lower()]
             old_id = old_matches[0].id if len(old_matches) == 1 else None
             batch_id = uuid.uuid4().hex
-            journal.record(batch_id, txn.id, old_id, txn.category, target.id, target.name)
+            journal.record(batch_id, "recategorize", txn.id, old_id, target.id, txn.category, target.name)
             applied = svc.recategorize(txn.id, target.id)
             if applied:
                 journal.mark_succeeded(batch_id, txn.id)
@@ -554,7 +554,7 @@ def build_server(
             for t in matched:
                 oid_matches = by_name.get(t.category.lower(), [])
                 old_id = oid_matches[0].id if len(oid_matches) == 1 else None
-                journal.record(batch_id, t.id, old_id, t.category, target.id, target.name)
+                journal.record(batch_id, "recategorize", t.id, old_id, target.id, t.category, target.name)
                 if svc.recategorize(t.id, target.id):
                     journal.mark_succeeded(batch_id, t.id)
                     changed += 1
@@ -585,17 +585,21 @@ def build_server(
             reverted = []
             failures = []
             for r in rows:
-                if svc.recategorize(r["transaction_id"], r["old_category_id"]):
-                    journal.mark_undone(batch_id, r["transaction_id"])
+                if r["op_type"] == "recategorize":
+                    ok = svc.recategorize(r["target_id"], r["old_value"])
+                else:
+                    ok = False
+                if ok:
+                    journal.mark_undone(batch_id, r["target_id"])
                     reverted.append(r)
                 else:
-                    failures.append({"transaction_id": r["transaction_id"],
+                    failures.append({"transaction_id": r["target_id"],
                                      "reason": "Monarch did not apply the category"})
-            restored_names = {r["old_category_name"] for r in reverted}
+            restored_names = {r["label_old"] for r in reverted}
             if len(restored_names) == 1:
                 restored_to = restored_names.pop()
             elif reverted:
-                restored_to = f"{len(reverted)} transactions"
+                restored_to = f"{len(reverted)} items"
             else:
                 restored_to = ""
             return {"reversed": len(reverted), "failed": len(failures),

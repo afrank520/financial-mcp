@@ -1029,7 +1029,7 @@ def test_bulk_partial_failure_reports_honestly_and_only_succeeded_undoable(tmp_p
     # Only the succeeded row (tx1) is undoable — the failed row (tx2) is not.
     assert journal.last_undoable_batch() == out["batch_id"]
     rows = journal.undoable_rows(out["batch_id"])
-    assert [r["transaction_id"] for r in rows] == ["tx1"]
+    assert [r["target_id"] for r in rows] == ["tx1"]
 
 
 # ---------------------------------------------------------------------------
@@ -1158,7 +1158,7 @@ def test_undo_last_partial_failure_reports_honestly_and_retains_open_row(tmp_pat
     # and the batch remains undoable so a retry can target it.
     assert journal.last_undoable_batch() == batch_id
     open_rows = journal.undoable_rows(batch_id)
-    assert [r["transaction_id"] for r in open_rows] == ["tx2"]
+    assert [r["target_id"] for r in open_rows] == ["tx2"]
 
 
 def test_undo_last_retry_after_partial_failure_finishes_the_batch(tmp_path):
