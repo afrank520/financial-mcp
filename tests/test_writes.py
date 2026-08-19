@@ -64,3 +64,31 @@ def test_match_transactions_reuses_search_and_date_window():
         start=datetime.date(2026, 6, 1), end=datetime.date(2026, 6, 30),
     )
     assert {t.id for t in out} == {"a", "b"}
+
+
+def _cats():
+    return [
+        Category(id="c1", name="Groceries", group="Food & Dining", group_id="g1"),
+        Category(id="c2", name="Restaurants", group="Food & Dining", group_id="g1"),
+        Category(id="c3", name="Gas", group="Auto & Transport", group_id="g2"),
+    ]
+
+
+def test_resolve_group_hit_is_case_insensitive():
+    assert writes.resolve_group("food & dining", _cats()) == ("g1", "Food & Dining")
+
+
+def test_resolve_group_miss_lists_valid_groups():
+    with pytest.raises(writes.WriteError) as exc:
+        writes.resolve_group("Nope", _cats())
+    assert "Auto & Transport" in str(exc.value)
+    assert "Food & Dining" in str(exc.value)
+
+
+def test_check_name_available_raises_when_taken():
+    with pytest.raises(writes.WriteError):
+        writes.check_name_available("groceries", _cats())
+
+
+def test_check_name_available_ok_when_free():
+    writes.check_name_available("Vacations", _cats())  # no raise

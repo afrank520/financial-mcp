@@ -55,3 +55,29 @@ def match_transactions(
         result, merchant=merchant, category=category,
         min_amount=min_amount, max_amount=max_amount,
     )
+
+
+DEFAULT_CATEGORY_ICON = "🏷️"
+
+
+def resolve_group(name: str, categories: list[Category]) -> tuple[str, str]:
+    """Exact case-insensitive group name -> (group_id, group_name). Fail-closed."""
+    by_name = {}
+    for c in categories:
+        if c.group and c.group_id:
+            by_name.setdefault(c.group.lower(), (c.group_id, c.group))
+    hit = by_name.get(name.lower())
+    if hit:
+        return hit
+    valid = ", ".join(sorted({c.group for c in categories if c.group}))
+    raise WriteError(
+        f"No category group named {name!r}. Pick an existing group: {valid}"
+    )
+
+
+def check_name_available(name: str, categories: list[Category]) -> None:
+    """Fail-closed: raise if a category by this name already exists (case-insensitive)."""
+    if any(c.name.lower() == name.lower() for c in categories):
+        raise WriteError(
+            f"A category named {name!r} already exists. Pick a different name."
+        )
