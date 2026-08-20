@@ -111,3 +111,24 @@ def test_check_name_available_raises_when_taken():
 
 def test_check_name_available_ok_when_free():
     writes.check_name_available("Vacations", _cats())  # no raise
+
+
+def test_count_in_category_counts_case_insensitively():
+    from financial_mcp.writes import count_in_category
+    txns = [
+        _txn("a", "Amazon", "Groceries", "-10", datetime.date(2026, 6, 3)),
+        _txn("b", "Walmart", "groceries", "-20", datetime.date(2026, 6, 4)),
+        _txn("c", "Olive Garden", "Restaurants", "-30", datetime.date(2026, 6, 5)),
+    ]
+    assert count_in_category("GROCERIES", txns) == 2
+    assert count_in_category("Restaurants", txns) == 1
+    assert count_in_category("Travel", txns) == 0
+
+
+def test_compute_delete_token_stable_and_count_sensitive():
+    from financial_mcp.writes import compute_delete_token
+    a = compute_delete_token("c1", 0)
+    assert a == compute_delete_token("c1", 0)      # stable
+    assert a != compute_delete_token("c1", 1)      # changes when count changes
+    assert a != compute_delete_token("c2", 0)      # changes when id changes
+    assert len(a) == 16
