@@ -55,3 +55,39 @@ def match_transactions(
         result, merchant=merchant, category=category,
         min_amount=min_amount, max_amount=max_amount,
     )
+
+
+DEFAULT_CATEGORY_ICON = "🏷️"
+
+
+def resolve_group(name: str, categories: list[Category]) -> tuple[str, str]:
+    """Exact case-insensitive group name -> (group_id, group_name). Fail-closed
+    on miss OR ambiguity (same case-insensitive name mapping to more than one
+    distinct group_id). Multiple categories sharing the SAME group_id is the
+    normal case and still resolves fine."""
+    by_name: dict[str, dict[str, str]] = {}
+    for c in categories:
+        if c.group and c.group_id:
+            by_name.setdefault(c.group.lower(), {})[c.group_id] = c.group
+    matches = by_name.get(name.lower())
+    if not matches:
+        valid = ", ".join(sorted({c.group for c in categories if c.group}))
+        raise WriteError(
+            f"No category group named {name!r}. Pick an existing group: {valid}"
+        )
+    if len(matches) > 1:
+        ids = "; ".join(f"{gname!r} (group_id: {gid})" for gid, gname in matches.items())
+        raise WriteError(
+            f"Category group name {name!r} is ambiguous — it maps to {len(matches)} "
+            f"distinct group ids: {ids}. Disambiguate before writing."
+        )
+    ((group_id, group_name),) = matches.items()
+    return group_id, group_name
+
+
+def check_name_available(name: str, categories: list[Category]) -> None:
+    """Fail-closed: raise if a category by this name already exists (case-insensitive)."""
+    if any(c.name.lower() == name.lower() for c in categories):
+        raise WriteError(
+            f"A category named {name!r} already exists. Pick a different name."
+        )

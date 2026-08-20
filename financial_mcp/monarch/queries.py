@@ -295,3 +295,21 @@ mutation Web_TransactionDrawerUpdateTransaction($input: UpdateTransactionMutatio
   }
 }
 """
+
+CREATE_CATEGORY = """
+mutation CreateCategory($input: CreateCategoryInput!) {
+  createCategory(input: $input) {
+    category { id name __typename }
+    __typename
+  }
+}
+"""
+
+UPDATE_CATEGORY = """
+mutation UpdateCategory($input: UpdateCategoryInput!) {
+  updateCategory(input: $input) {
+    category { id name __typename }
+    __typename
+  }
+}
+"""

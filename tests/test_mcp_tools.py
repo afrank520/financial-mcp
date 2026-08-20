@@ -75,6 +75,12 @@ class FakeAdapter(MonarchAdapter):
         self.recategorized.append((transaction_id, category_id))
         return True
 
+    def create_category(self, name, group_id, icon):
+        raise NotImplementedError("not exercised by these tests")
+
+    def rename_category(self, category_id, new_name):
+        raise NotImplementedError("not exercised by these tests")
+
     def source_name(self):
         return "fake"
 
@@ -1029,7 +1035,7 @@ def test_bulk_partial_failure_reports_honestly_and_only_succeeded_undoable(tmp_p
     # Only the succeeded row (tx1) is undoable — the failed row (tx2) is not.
     assert journal.last_undoable_batch() == out["batch_id"]
     rows = journal.undoable_rows(out["batch_id"])
-    assert [r["transaction_id"] for r in rows] == ["tx1"]
+    assert [r["target_id"] for r in rows] == ["tx1"]
 
 
 # ---------------------------------------------------------------------------
@@ -1158,7 +1164,7 @@ def test_undo_last_partial_failure_reports_honestly_and_retains_open_row(tmp_pat
     # and the batch remains undoable so a retry can target it.
     assert journal.last_undoable_batch() == batch_id
     open_rows = journal.undoable_rows(batch_id)
-    assert [r["transaction_id"] for r in open_rows] == ["tx2"]
+    assert [r["target_id"] for r in open_rows] == ["tx2"]
 
 
 def test_undo_last_retry_after_partial_failure_finishes_the_batch(tmp_path):
@@ -1192,3 +1198,227 @@ def test_undo_last_retry_after_partial_failure_finishes_the_batch(tmp_path):
     assert second["restored_to"] == "Uncategorized"
     assert adapter.recategorized == [("tx2", "uncat")]
     assert journal.last_undoable_batch() is None
+
+
+class CategoryCrudAdapter(MonarchAdapter):
+    """Stub adapter for create_category/rename_category tool tests (Task 4/5).
+
+    get_categories() returns two categories in the same group so Task 5's
+    rename-collision tests have something to collide with. create_category
+    always returns "newcat". rename_category records the last-applied name
+    and always reports success, so undo can re-invoke it to restore the old
+    name.
+    """
+
+    def get_transactions(self):
+        return []
+
+    def get_balances(self):
+        return []
+
+    def get_accounts(self):
+        return []
+
+    def get_balance_history(self):
+        return []
+
+    def get_cashflow(self, start, end):
+        return Cashflow(
+            start=start, end=end,
+            income=Decimal("0"), expense=Decimal("0"),
+            savings=Decimal("0"), savings_rate_monarch=Decimal("0"),
+        )
+
+    def get_networth_history(self):
+        return []
+
+    def get_categories(self):
+        from financial_mcp.monarch.models import Category
+
+        return [
+            Category(id="c1", name="Groceries", group="Food & Dining", group_id="g1"),
+            Category(id="c2", name="Restaurants", group="Food & Dining", group_id="g1"),
+        ]
+
+    def get_budgets(self, start, end):
+        return []
+
+    def get_holdings(self):
+        return []
+
+    def get_recurring(self, start, end):
+        return []
+
+    def recategorize_transaction(self, transaction_id, category_id):
+        return True
+
+    def create_category(self, name, group_id, icon):
+        self.created = getattr(self, "created", [])
+        self.created.append((name, group_id, icon))
+        return "newcat"
+
+    def rename_category(self, category_id, new_name):
+        self.renamed = getattr(self, "renamed", [])
+        self.renamed.append((category_id, new_name))
+        return True
+
+    def source_name(self):
+        return "fake"
+
+
+def _category_server(tmp_path, write_mode="safe", batch_cap=200):
+    """Shared helper for create_category (Task 4) and rename_category (Task 5) tool tests."""
+    from financial_mcp.cache.undo_journal import UndoJournal
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(CategoryCrudAdapter(), cache)
+    journal = UndoJournal(str(tmp_path / "j.db"))
+    server = build_server(svc, write_mode=write_mode, batch_cap=batch_cap, journal=journal)
+    return server, journal
+
+
+def test_create_category_off_mode_refuses(tmp_path):
+    server, _ = _category_server(tmp_path, write_mode="off")
+    out = _tool(server, "create_category")(name="Vacations", group="Food & Dining")
+    assert "disabled" in out["error"]
+
+
+def test_create_category_safe_mode_creates_and_journals(tmp_path):
+    server, journal = _category_server(tmp_path, write_mode="safe")
+    out = _tool(server, "create_category")(name="Vacations", group="Food & Dining")
+    assert out["created"] == 1
+    assert out["name"] == "Vacations"
+    assert out["group"] == "Food & Dining"
+    assert journal.history()[0]["summary"] == "＋Vacations (created) ×1"
+    assert journal.last_undoable_batch() is None  # create is not auto-undoable
+
+
+def test_create_category_unknown_group_refuses(tmp_path):
+    server, _ = _category_server(tmp_path, write_mode="full")
+    out = _tool(server, "create_category")(name="Vacations", group="Nope")
+    assert "group" in out["error"].lower()
+
+
+def test_create_category_duplicate_name_refuses(tmp_path):
+    server, _ = _category_server(tmp_path, write_mode="full")
+    out = _tool(server, "create_category")(name="Groceries", group="Food & Dining")
+    assert "already exists" in out["error"]
+
+
+def test_rename_category_off_mode_refuses(tmp_path):
+    server, _ = _category_server(tmp_path, write_mode="off")
+    out = _tool(server, "rename_category")(name="Groceries", new_name="Food")
+    assert "disabled" in out["error"]
+
+
+def test_rename_category_safe_mode_renames_and_is_undoable(tmp_path):
+    server, journal = _category_server(tmp_path, write_mode="safe")
+    out = _tool(server, "rename_category")(name="Groceries", new_name="Food")
+    assert out["renamed"] == 1
+    assert out["from"] == "Groceries"
+    assert out["to"] == "Food"
+    assert journal.last_undoable_batch() == out["batch_id"]
+
+    undo = _tool(server, "undo_last")()
+    assert undo["reversed"] == 1
+    assert undo["restored_to"] == "Groceries"
+
+
+def test_rename_category_unknown_source_refuses(tmp_path):
+    server, _ = _category_server(tmp_path, write_mode="full")
+    out = _tool(server, "rename_category")(name="Nope", new_name="Food")
+    assert "No category named" in out["error"]
+
+
+def test_rename_category_new_name_taken_refuses(tmp_path):
+    server, _ = _category_server(tmp_path, write_mode="full")
+    # 'Groceries' and 'Restaurants' both exist in the stub; renaming to an existing name refuses.
+    out = _tool(server, "rename_category")(name="Groceries", new_name="Restaurants")
+    assert "already exists" in out["error"]
+
+
+# ---------------------------------------------------------------------------
+# undo_last multi-level dispatch across MIXED op types (spec §9) — one journal,
+# one server, a rename batch AND a recategorize batch, stepped back through
+# by successive undo_last calls in seq DESC order.
+# ---------------------------------------------------------------------------
+
+
+class MixedOpsAdapter(CategoryCrudAdapter):
+    """CategoryCrudAdapter (create/rename) plus one real transaction so the
+    SAME adapter/server/journal can also exercise recategorize_transaction —
+    needed to prove undo_last dispatches correctly across batches of
+    DIFFERENT op types sharing one journal."""
+
+    def get_transactions(self):
+        return [
+            Transaction(
+                id="tx1",
+                date=datetime.date(2026, 1, 2),
+                merchant="Costco",
+                category="Groceries",
+                account="Checking",
+                original_statement="COSTCO",
+                notes="",
+                amount=Decimal("-5.00"),
+                tags=[],
+                owner="A",
+            )
+        ]
+
+    def recategorize_transaction(self, transaction_id, category_id):
+        self.recategorized = getattr(self, "recategorized", [])
+        self.recategorized.append((transaction_id, category_id))
+        return True
+
+
+def _mixed_ops_server(tmp_path, write_mode="full", batch_cap=200):
+    from financial_mcp.cache.undo_journal import UndoJournal
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    adapter = MixedOpsAdapter()
+    svc = DataService(adapter, cache)
+    journal = UndoJournal(str(tmp_path / "j.db"))
+    server = build_server(svc, write_mode=write_mode, batch_cap=batch_cap, journal=journal)
+    return svc, journal, server
+
+
+def test_undo_last_multi_level_dispatch_across_mixed_op_types(tmp_path):
+    svc, journal, server = _mixed_ops_server(tmp_path)
+    rename = _tool(server, "rename_category")
+    recat = _tool(server, "recategorize_transaction")
+    undo = _tool(server, "undo_last")
+
+    # Batch A (older): rename_category — Groceries -> Food.
+    rename_out = rename(name="Groceries", new_name="Food")
+    assert rename_out["renamed"] == 1
+    batch_a = rename_out["batch_id"]
+
+    # Batch B (newer): recategorize_transaction — tx1 Groceries -> Restaurants.
+    recat_out = recat(transaction_id="tx1", category="Restaurants")
+    assert recat_out["changed"] == 1
+    batch_b = recat_out["batch_id"]
+
+    assert journal.last_undoable_batch() == batch_b
+
+    # First undo_last reverses the NEWEST batch first (seq DESC) — the
+    # recategorize, even though a rename op exists earlier in the journal.
+    first = undo()
+    assert first["batch_id"] == batch_b
+    assert first["reversed"] == 1
+    assert first["restored_to"] == "Groceries"
+    assert svc._adapter.recategorized[-1] == ("tx1", "c1")
+    assert journal.last_undoable_batch() == batch_a
+
+    # Second undo_last reverses the OLDER batch — the rename — via the
+    # correct compensating write for ITS op type.
+    second = undo()
+    assert second["batch_id"] == batch_a
+    assert second["reversed"] == 1
+    assert second["restored_to"] == "Groceries"
+    assert svc._adapter.renamed[-1] == ("c1", "Groceries")
+    assert journal.last_undoable_batch() is None
+
+    # Nothing left to undo.
+    third = undo()
+    assert third == {"reversed": 0, "message": "nothing to undo"}
