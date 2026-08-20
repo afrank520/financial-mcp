@@ -43,6 +43,15 @@ def test_get_categories_populates_group_id():
     assert cats[0].group_id == "g1"
 
 
+def test_get_categories_maps_icon():
+    a = _adapter({"GetCategories": {"categories": [
+        {"id": "c1", "name": "Groceries", "icon": "🛒",
+         "group": {"id": "g1", "name": "Food & Dining", "type": "expense"}}]}})
+    cats = a.get_categories()
+    assert cats[0].icon == "🛒"
+    assert cats[0].group_id == "g1"
+
+
 def test_csv_adapter_category_writes_refuse():
     csv = CsvAdapter("unused_txns.csv", "unused_balances.csv")
     with pytest.raises(RuntimeError, match="writes are not available in CSV mode"):

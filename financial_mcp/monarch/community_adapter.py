@@ -257,6 +257,7 @@ class CommunityAdapter(MonarchAdapter):
             Category(
                 id=c["id"],
                 name=c["name"],
+                icon=c.get("icon"),
                 group=(c.get("group") or {}).get("name"),
                 group_id=(c.get("group") or {}).get("id"),
                 group_type=(c.get("group") or {}).get("type"),
