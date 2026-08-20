@@ -1,6 +1,9 @@
 # Monarch MCP — Plan 4 Slice 2: category create + rename (writes + generalized undo) (design)
 
-**Status:** Designed — not yet built.
+**Status:** SHIPPED + MERGED to main 2026-08-20 (merge 3d83c35, --no-ff). 258 tests.
+Live-proven against real Monarch 2026-08-20: create→verify→rename→undo full loop
+green; both `CREATE_CATEGORY` and `UPDATE_CATEGORY` mutation shapes worked first
+try, so the §8.4 live-shape risk is CLOSED (no adapter adjustment needed).
 
 **Roadmap slot:** Second write slice (Plan 4). Follows the shipped, live-proven Slice 1
 (`2026-08-11-monarch-mcp-plan4-recategorization-design.md`), which established the
