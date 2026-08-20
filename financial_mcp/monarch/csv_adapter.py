@@ -114,3 +114,6 @@ class CsvAdapter(MonarchAdapter):
 
     def rename_category(self, category_id: str, new_name: str) -> bool:
         raise RuntimeError("writes are not available in CSV mode")
+
+    def delete_category(self, category_id: str) -> bool:
+        raise RuntimeError("writes are not available in CSV mode")

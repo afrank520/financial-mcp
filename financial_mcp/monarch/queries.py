@@ -314,3 +314,13 @@ mutation UpdateCategory($input: UpdateCategoryInput!) {
   }
 }
 """
+
+DELETE_CATEGORY = """
+mutation Web_DeleteCategory($id: UUID!) {
+  deleteCategory(id: $id) {
+    deleted
+    errors { message code __typename }
+    __typename
+  }
+}
+"""

@@ -58,3 +58,36 @@ def test_csv_adapter_category_writes_refuse():
         csv.create_category("X", "g1", "🏷️")
     with pytest.raises(RuntimeError, match="writes are not available in CSV mode"):
         csv.rename_category("c1", "X")
+
+
+def test_delete_category_returns_true_when_monarch_confirms():
+    from financial_mcp.monarch.community_adapter import CommunityAdapter
+
+    async def transport(operation, query, variables):
+        assert operation == "Web_DeleteCategory"
+        assert variables == {"id": "c1"}
+        return {"deleteCategory": {"deleted": True, "errors": None}}
+
+    adapter = CommunityAdapter(session={"session_id": "s", "csrftoken": "c"},
+                               service_name="svc", transport=transport)
+    assert adapter.delete_category("c1") is True
+
+
+def test_delete_category_returns_false_when_not_deleted():
+    from financial_mcp.monarch.community_adapter import CommunityAdapter
+
+    async def transport(operation, query, variables):
+        return {"deleteCategory": {"deleted": False,
+                                   "errors": [{"message": "not empty"}]}}
+
+    adapter = CommunityAdapter(session={"session_id": "s", "csrftoken": "c"},
+                               service_name="svc", transport=transport)
+    assert adapter.delete_category("c1") is False
+
+
+def test_csv_adapter_delete_category_refuses():
+    import pytest
+    from financial_mcp.monarch.csv_adapter import CsvAdapter
+    adapter = CsvAdapter("unused_txns.csv", "unused_balances.csv")
+    with pytest.raises(RuntimeError, match="writes are not available in CSV mode"):
+        adapter.delete_category("c1")

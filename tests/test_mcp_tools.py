@@ -81,6 +81,9 @@ class FakeAdapter(MonarchAdapter):
     def rename_category(self, category_id, new_name):
         raise NotImplementedError("not exercised by these tests")
 
+    def delete_category(self, category_id):
+        raise NotImplementedError("not exercised by these tests")
+
     def source_name(self):
         return "fake"
 
@@ -1260,6 +1263,11 @@ class CategoryCrudAdapter(MonarchAdapter):
     def rename_category(self, category_id, new_name):
         self.renamed = getattr(self, "renamed", [])
         self.renamed.append((category_id, new_name))
+        return True
+
+    def delete_category(self, category_id):
+        self.deleted = getattr(self, "deleted", [])
+        self.deleted.append(category_id)
         return True
 
     def source_name(self):

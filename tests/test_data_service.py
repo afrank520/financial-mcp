@@ -89,6 +89,9 @@ class FakeAdapter(MonarchAdapter):
     def rename_category(self, category_id, new_name):
         raise NotImplementedError("not exercised by these tests")
 
+    def delete_category(self, category_id):
+        raise NotImplementedError("not exercised by these tests")
+
     def source_name(self):
         return "fake"
 
@@ -187,6 +190,8 @@ class _StubAdapter(MonarchAdapter):
     def create_category(self, name, group_id, icon):
         raise NotImplementedError("not exercised by these tests")
     def rename_category(self, category_id, new_name):
+        raise NotImplementedError("not exercised by these tests")
+    def delete_category(self, category_id):
         raise NotImplementedError("not exercised by these tests")
 
 
