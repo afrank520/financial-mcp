@@ -679,11 +679,11 @@ def build_server(
 
     @server.tool()
     def undo_last() -> dict:
-        """Reverse the most recent recategorization or category-rename batch
+        """Reverse the most recent recategorization, category-rename, or category-delete batch
         (multi-level: call again to step back to the previous one). Undo is a
         compensating write — it re-sets each item to the value it had when the
-        write ran; it does not detect edits you made afterward. Refuses in
-        write_mode 'off'.
+        write ran; deletions are reversed by recreating the category. Does not detect edits you made afterward.
+        Refuses in write_mode 'off'.
         """
         disabled = _writes_enabled()
         if disabled:
@@ -733,7 +733,7 @@ def build_server(
 
     @server.tool()
     def undo_history() -> dict:
-        """Show the reversible recategorization or category-rename batches, newest
+        """Show the reversible recategorization, category-rename, and category-delete batches, newest
         first: each with a summary (e.g. 'Uncategorized→Shopping ×12'), count, when,
         and whether it has already been undone.
         """
