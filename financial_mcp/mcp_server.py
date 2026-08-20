@@ -630,6 +630,54 @@ def build_server(
         return _guard(_run)
 
     @server.tool()
+    def delete_category(name: str, confirm_token: str | None = None) -> dict:
+        """Delete an existing, EMPTY category (by name).
+
+        Fail-closed: refuses if any transaction is still in the category (move
+        them first via recategorize_matching) or if a pending undo depends on
+        this category (run undo_last first). Delete is destructive, so BOTH
+        'safe' and 'full' modes require the dry-run/confirm_token handshake —
+        call without confirm_token to preview and get a token, then call again
+        with that token to execute. Reversible via undo_last (recreates the
+        category, though it gets a new id).
+        """
+        disabled = _writes_enabled()
+        if disabled:
+            return {"error": disabled}
+
+        def _run():
+            cats = svc.categories()
+            try:
+                cat = writes.resolve_category(name, cats)
+            except writes.WriteError as exc:
+                return {"error": str(exc)}
+            count = writes.count_in_category(cat.name, svc.transactions())
+            if count > 0:
+                return {"error": f"Category '{cat.name}' has {count} transactions — "
+                                  "recategorize them first."}
+            deps = journal.pending_dependents(cat.id)
+            if deps > 0:
+                return {"error": f"{deps} pending undo(s) depend on this category; "
+                                  "run undo_last first."}
+            token = writes.compute_delete_token(cat.id, count)
+            if confirm_token is None or confirm_token != token:
+                return {"dry_run": True, "id": cat.id, "name": cat.name, "group": cat.group,
+                        "transaction_count": count, "confirm_token": token, "mode": write_mode}
+            icon = cat.icon or writes.DEFAULT_CATEGORY_ICON
+            batch_id = uuid.uuid4().hex
+            journal.record(batch_id, "delete_category", cat.id, cat.group_id, icon,
+                           cat.name, cat.name)
+            if svc.delete_category(cat.id):
+                journal.mark_succeeded(batch_id, cat.id)
+                return {"deleted": 1, "name": cat.name, "group": cat.group,
+                        "batch_id": batch_id, "undo_hint": "call undo_last to reverse"}
+            return {"deleted": 0, "failed": 1,
+                    "failures": [{"category_id": cat.id,
+                                  "reason": "Monarch did not apply the delete"}]}
+
+        return _guard(_run)
+
+    @server.tool()
     def undo_last() -> dict:
         """Reverse the most recent recategorization or category-rename batch
         (multi-level: call again to step back to the previous one). Undo is a
@@ -653,6 +701,8 @@ def build_server(
                     ok = svc.recategorize(r["target_id"], r["old_value"])
                 elif r["op_type"] == "rename_category":
                     ok = svc.rename_category(r["target_id"], r["old_value"])
+                elif r["op_type"] == "delete_category":
+                    ok = bool(svc.create_category(r["label_old"], r["old_value"], r["new_value"]))
                 else:
                     ok = False
                 if ok:
@@ -662,6 +712,9 @@ def build_server(
                     if r["op_type"] == "recategorize":
                         failures.append({"transaction_id": r["target_id"],
                                          "reason": "Monarch did not apply the category"})
+                    elif r["op_type"] == "delete_category":
+                        failures.append({"category_id": r["target_id"],
+                                         "reason": "Monarch did not apply the recreate"})
                     else:
                         failures.append({"category_id": r["target_id"],
                                          "reason": "Monarch did not apply the rename"})
