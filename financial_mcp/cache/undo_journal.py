@@ -6,7 +6,7 @@ import sqlite3
 import time
 from collections.abc import Callable
 
-REVERSIBLE_OPS = ("recategorize", "rename_category")
+REVERSIBLE_OPS = ("recategorize", "rename_category", "delete_category")
 
 
 class UndoJournal:
@@ -95,7 +95,7 @@ class UndoJournal:
     def undoable_rows(self, batch_id) -> list[dict]:
         placeholders = ",".join("?" for _ in REVERSIBLE_OPS)
         rows = self._conn.execute(
-            f"""SELECT target_id, op_type, old_value, label_old, label_new
+            f"""SELECT target_id, op_type, old_value, new_value, label_old, label_new
                 FROM write_journal
                 WHERE batch_id=? AND succeeded=1 AND undone=0 AND old_value IS NOT NULL
                   AND op_type IN ({placeholders})
@@ -104,9 +104,24 @@ class UndoJournal:
         ).fetchall()
         return [
             {"target_id": r[0], "op_type": r[1], "old_value": r[2],
-             "label_old": r[3], "label_new": r[4]}
+             "new_value": r[3], "label_old": r[4], "label_new": r[5]}
             for r in rows
         ]
+
+    def pending_dependents(self, category_id: str) -> int:
+        """Count of un-undone, succeeded, reversible rows that reference this
+        category id as either the object acted on (target_id) or the value to
+        restore into (old_value). Deleting such a category would strand those
+        undos, so the delete tool refuses when this is > 0."""
+        placeholders = ",".join("?" for _ in REVERSIBLE_OPS)
+        row = self._conn.execute(
+            f"""SELECT COUNT(*) FROM write_journal
+                WHERE succeeded=1 AND undone=0
+                  AND op_type IN ({placeholders})
+                  AND (target_id=? OR old_value=?)""",
+            (*REVERSIBLE_OPS, category_id, category_id),
+        ).fetchone()
+        return row[0] if row else 0
 
     def mark_undone(self, batch_id, target_id=None) -> None:
         """Mark rows as reversed. With `target_id=None` (default), marks
@@ -143,6 +158,8 @@ class UndoJournal:
             (op_type, old_n, new_n), n = pairs.most_common(1)[0]
             if op_type == "create_category":
                 summary = f"＋{new_n} (created) ×{n}"
+            elif op_type == "delete_category":
+                summary = f"✕ {old_n} (deleted) ×{n}"
             else:
                 summary = f"{old_n}→{new_n} ×{n}"
             out.append({

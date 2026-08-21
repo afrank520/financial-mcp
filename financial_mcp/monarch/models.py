@@ -65,6 +65,7 @@ class NetWorthSnapshot(BaseModel):
 class Category(BaseModel):
     id: str
     name: str
+    icon: str | None = None
     group: str | None = None
     group_id: str | None = None
     group_type: str | None = None   # Monarch's own: "income" | "expense" | "transfer"

@@ -16,6 +16,7 @@ from financial_mcp.monarch.models import (
 )
 from financial_mcp.monarch.queries import (
     CREATE_CATEGORY,
+    DELETE_CATEGORY,
     GET_ACCOUNT_SNAPSHOTS,
     GET_ACCOUNTS,
     GET_ACCOUNTS_MIN,
@@ -257,6 +258,7 @@ class CommunityAdapter(MonarchAdapter):
             Category(
                 id=c["id"],
                 name=c["name"],
+                icon=c.get("icon"),
                 group=(c.get("group") or {}).get("name"),
                 group_id=(c.get("group") or {}).get("id"),
                 group_type=(c.get("group") or {}).get("type"),
@@ -379,3 +381,10 @@ class CommunityAdapter(MonarchAdapter):
         )
         cat = (data.get("updateCategory") or {}).get("category") or {}
         return cat.get("name") == new_name
+
+    def delete_category(self, category_id: str) -> bool:
+        data = self._run(
+            self._transport("Web_DeleteCategory", DELETE_CATEGORY, {"id": category_id})
+        )
+        res = (data.get("deleteCategory") or {})
+        return bool(res.get("deleted"))

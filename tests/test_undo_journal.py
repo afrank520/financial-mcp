@@ -15,7 +15,7 @@ def test_record_then_mark_succeeded_makes_row_undoable(tmp_path):
     rows = j.undoable_rows("b1")
     assert rows == [{
         "target_id": "tx1", "op_type": "recategorize", "old_value": "old1",
-        "label_old": "Uncategorized", "label_new": "Shopping",
+        "new_value": "new1", "label_old": "Uncategorized", "label_new": "Shopping",
     }]
 
 
@@ -71,7 +71,8 @@ def test_migration_preserves_old_recat_rows(tmp_path):
     assert j.last_undoable_batch() == "b1"
     rows = j.undoable_rows("b1")
     assert rows == [{"target_id": "tx1", "op_type": "recategorize",
-                     "old_value": "oid", "label_old": "Dining", "label_new": "Groceries"}]
+                     "old_value": "oid", "new_value": "nid",
+                     "label_old": "Dining", "label_new": "Groceries"}]
 
 
 def test_rename_row_is_undoable(tmp_path):
@@ -90,3 +91,46 @@ def test_create_row_is_recorded_but_not_undoable(tmp_path):
     assert j.undoable_rows("b1") == []
     hist = j.history()
     assert hist[0]["summary"] == "＋Vacations (created) ×1"
+
+
+def test_delete_category_is_reversible_and_carries_new_value(tmp_path):
+    from financial_mcp.cache.undo_journal import UndoJournal, REVERSIBLE_OPS
+    assert "delete_category" in REVERSIBLE_OPS
+    j = UndoJournal(str(tmp_path / "j.db"))
+    # delete op: target_id=deleted id, old_value=group_id, new_value=icon, label_old=name
+    j.record("b1", "delete_category", "c1", "g1", "🛒", "Groceries", "Groceries")
+    j.mark_succeeded("b1", "c1")
+    assert j.last_undoable_batch() == "b1"
+    rows = j.undoable_rows("b1")
+    assert rows[0]["op_type"] == "delete_category"
+    assert rows[0]["old_value"] == "g1"
+    assert rows[0]["new_value"] == "🛒"       # additive key, needed for recreate
+    assert rows[0]["label_old"] == "Groceries"
+
+
+def test_pending_dependents_counts_target_and_old_value_refs(tmp_path):
+    from financial_mcp.cache.undo_journal import UndoJournal
+    j = UndoJournal(str(tmp_path / "j.db"))
+    # recat that would restore INTO c1 (old_value=c1)
+    j.record("b1", "recategorize", "tx1", "c1", "c2", "Groceries", "Restaurants")
+    j.mark_succeeded("b1", "tx1")
+    # rename whose target IS c1 (target_id=c1)
+    j.record("b2", "rename_category", "c1", "Groceries", "Food", "Groceries", "Food")
+    j.mark_succeeded("b2", "c1")
+    # unrelated recat
+    j.record("b3", "recategorize", "tx2", "c9", "c8", "X", "Y")
+    j.mark_succeeded("b3", "tx2")
+    assert j.pending_dependents("c1") == 2
+    assert j.pending_dependents("c9") == 1
+    assert j.pending_dependents("c7") == 0
+    # once undone, no longer a dependent
+    j.mark_undone("b1")
+    assert j.pending_dependents("c1") == 1
+
+
+def test_history_summarizes_delete(tmp_path):
+    from financial_mcp.cache.undo_journal import UndoJournal
+    j = UndoJournal(str(tmp_path / "j.db"))
+    j.record("b1", "delete_category", "c1", "g1", "🛒", "Groceries", "Groceries")
+    j.mark_succeeded("b1", "c1")
+    assert j.history()[0]["summary"] == "✕ Groceries (deleted) ×1"

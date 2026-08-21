@@ -89,6 +89,9 @@ class FakeAdapter(MonarchAdapter):
     def rename_category(self, category_id, new_name):
         raise NotImplementedError("not exercised by these tests")
 
+    def delete_category(self, category_id):
+        raise NotImplementedError("not exercised by these tests")
+
     def source_name(self):
         return "fake"
 
@@ -187,6 +190,8 @@ class _StubAdapter(MonarchAdapter):
     def create_category(self, name, group_id, icon):
         raise NotImplementedError("not exercised by these tests")
     def rename_category(self, category_id, new_name):
+        raise NotImplementedError("not exercised by these tests")
+    def delete_category(self, category_id):
         raise NotImplementedError("not exercised by these tests")
 
 
@@ -344,6 +349,37 @@ def test_holdings_is_cached(tmp_path):
     second = svc.holdings()          # within TTL -> served from cache
     assert adapter.holdings_calls == 1
     assert second[0].value == Decimal("10")   # round-trips through JSON cache
+
+
+def test_delete_category_invalidates_categories_cache(tmp_path):
+    from financial_mcp.monarch.models import Category
+
+    class _DelAdapter(_StubAdapter):
+        def __init__(self):
+            super().__init__([])
+            self.cat_calls = 0
+            self.deleted = []
+
+        def get_categories(self):
+            self.cat_calls += 1
+            return [Category(id="c1", name="Groceries", group="Food & Dining")]
+
+        def delete_category(self, category_id):
+            self.deleted.append(category_id)
+            return True
+
+    adapter = _DelAdapter()
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(adapter, cache)
+
+    svc.categories()  # populate cache
+    assert adapter.cat_calls == 1
+
+    assert svc.delete_category("c1") is True
+    assert adapter.deleted == ["c1"]
+
+    svc.categories()  # cache must have been invalidated -> refetch, not stale-served
+    assert adapter.cat_calls == 2
 
 
 def test_cachettls_holdings_is_one_hour():

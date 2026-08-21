@@ -91,3 +91,15 @@ def check_name_available(name: str, categories: list[Category]) -> None:
         raise WriteError(
             f"A category named {name!r} already exists. Pick a different name."
         )
+
+
+def count_in_category(name: str, transactions: list[Transaction]) -> int:
+    """Case-insensitive count of transactions currently in a category (by name)."""
+    return sum(1 for t in transactions if t.category.lower() == name.lower())
+
+
+def compute_delete_token(category_id: str, transaction_count: int) -> str:
+    """Deterministic content hash of a delete op. Binds the category id and its
+    transaction count so a category that stopped being empty re-previews."""
+    key = f"{category_id}:delete:{transaction_count}"
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]

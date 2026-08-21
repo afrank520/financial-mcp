@@ -43,9 +43,51 @@ def test_get_categories_populates_group_id():
     assert cats[0].group_id == "g1"
 
 
+def test_get_categories_maps_icon():
+    a = _adapter({"GetCategories": {"categories": [
+        {"id": "c1", "name": "Groceries", "icon": "🛒",
+         "group": {"id": "g1", "name": "Food & Dining", "type": "expense"}}]}})
+    cats = a.get_categories()
+    assert cats[0].icon == "🛒"
+    assert cats[0].group_id == "g1"
+
+
 def test_csv_adapter_category_writes_refuse():
     csv = CsvAdapter("unused_txns.csv", "unused_balances.csv")
     with pytest.raises(RuntimeError, match="writes are not available in CSV mode"):
         csv.create_category("X", "g1", "🏷️")
     with pytest.raises(RuntimeError, match="writes are not available in CSV mode"):
         csv.rename_category("c1", "X")
+
+
+def test_delete_category_returns_true_when_monarch_confirms():
+    from financial_mcp.monarch.community_adapter import CommunityAdapter
+
+    async def transport(operation, query, variables):
+        assert operation == "Web_DeleteCategory"
+        assert variables == {"id": "c1"}
+        return {"deleteCategory": {"deleted": True, "errors": None}}
+
+    adapter = CommunityAdapter(session={"session_id": "s", "csrftoken": "c"},
+                               service_name="svc", transport=transport)
+    assert adapter.delete_category("c1") is True
+
+
+def test_delete_category_returns_false_when_not_deleted():
+    from financial_mcp.monarch.community_adapter import CommunityAdapter
+
+    async def transport(operation, query, variables):
+        return {"deleteCategory": {"deleted": False,
+                                   "errors": [{"message": "not empty"}]}}
+
+    adapter = CommunityAdapter(session={"session_id": "s", "csrftoken": "c"},
+                               service_name="svc", transport=transport)
+    assert adapter.delete_category("c1") is False
+
+
+def test_csv_adapter_delete_category_refuses():
+    import pytest
+    from financial_mcp.monarch.csv_adapter import CsvAdapter
+    adapter = CsvAdapter("unused_txns.csv", "unused_balances.csv")
+    with pytest.raises(RuntimeError, match="writes are not available in CSV mode"):
+        adapter.delete_category("c1")

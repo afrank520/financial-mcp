@@ -122,6 +122,11 @@ class DataService:
         self._cache.invalidate("transactions")
         return applied
 
+    def delete_category(self, category_id: str) -> bool:
+        applied = self._adapter.delete_category(category_id)
+        self._cache.invalidate("categories")
+        return applied
+
     def freshness(self, data_type: str) -> dict:
         """Freshness metadata (as_of, age_seconds, fresh) for one data type."""
         return self._cache.freshness(data_type)

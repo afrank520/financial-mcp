@@ -81,6 +81,9 @@ class FakeAdapter(MonarchAdapter):
     def rename_category(self, category_id, new_name):
         raise NotImplementedError("not exercised by these tests")
 
+    def delete_category(self, category_id):
+        raise NotImplementedError("not exercised by these tests")
+
     def source_name(self):
         return "fake"
 
@@ -1262,6 +1265,11 @@ class CategoryCrudAdapter(MonarchAdapter):
         self.renamed.append((category_id, new_name))
         return True
 
+    def delete_category(self, category_id):
+        self.deleted = getattr(self, "deleted", [])
+        self.deleted.append(category_id)
+        return True
+
     def source_name(self):
         return "fake"
 
@@ -1422,3 +1430,155 @@ def test_undo_last_multi_level_dispatch_across_mixed_op_types(tmp_path):
     # Nothing left to undo.
     third = undo()
     assert third == {"reversed": 0, "message": "nothing to undo"}
+
+
+# ---------------------------------------------------------------------------
+# delete_category tool (Task 6, spec §2-§3): empty-only, dependency-checked,
+# gated handshake in BOTH safe and full modes, undo-by-recreate.
+# ---------------------------------------------------------------------------
+
+
+class DeleteNonEmptyAdapter(CategoryCrudAdapter):
+    """Groceries (c1) has one transaction, so delete('Groceries') must refuse."""
+    def get_transactions(self):
+        return [Transaction(id="tx1", date=datetime.date(2026, 1, 2), merchant="m",
+                            category="Groceries", account="a", original_statement="",
+                            notes="", amount=Decimal("-1"), tags=[], owner="")]
+
+
+def _delete_server(tmp_path, adapter=None, write_mode="safe"):
+    from financial_mcp.cache.undo_journal import UndoJournal
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(adapter or CategoryCrudAdapter(), cache)
+    journal = UndoJournal(str(tmp_path / "j.db"))
+    server = build_server(svc, write_mode=write_mode, batch_cap=200, journal=journal)
+    return svc, journal, server
+
+
+def test_delete_category_off_mode_refuses(tmp_path):
+    _, _, server = _delete_server(tmp_path, write_mode="off")
+    out = _tool(server, "delete_category")(name="Groceries")
+    assert "disabled" in out["error"]
+
+
+def test_delete_category_dry_run_then_confirm(tmp_path):
+    svc, journal, server = _delete_server(tmp_path, write_mode="safe")
+    delete = _tool(server, "delete_category")
+    preview = delete(name="Groceries")
+    assert preview["dry_run"] is True
+    assert preview["id"] == "c1"
+    assert preview["transaction_count"] == 0
+    token = preview["confirm_token"]
+    done = delete(name="Groceries", confirm_token=token)
+    assert done["deleted"] == 1
+    assert svc._adapter.deleted == ["c1"]
+    assert journal.last_undoable_batch() == done["batch_id"]
+
+
+def test_delete_category_full_mode_still_requires_handshake(tmp_path):
+    _, _, server = _delete_server(tmp_path, write_mode="full")
+    preview = _tool(server, "delete_category")(name="Groceries")
+    assert preview["dry_run"] is True   # full does NOT one-shot a delete
+
+
+def test_delete_category_non_empty_refuses(tmp_path):
+    _, _, server = _delete_server(tmp_path, DeleteNonEmptyAdapter(), write_mode="full")
+    out = _tool(server, "delete_category")(name="Groceries")
+    assert "transactions" in out["error"] and "1" in out["error"]
+
+
+def test_delete_category_pending_dependency_refuses(tmp_path):
+    svc, journal, server = _delete_server(tmp_path, write_mode="full")
+    # A pending recat whose undo would restore INTO c1.
+    journal.record("bx", "recategorize", "tx1", "c1", "c2", "Groceries", "Restaurants")
+    journal.mark_succeeded("bx", "tx1")
+    out = _tool(server, "delete_category")(name="Groceries")
+    assert "pending undo" in out["error"]
+
+
+def test_delete_category_stale_token_re_previews(tmp_path):
+    _, _, server = _delete_server(tmp_path, write_mode="safe")
+    out = _tool(server, "delete_category")(name="Groceries", confirm_token="wrong")
+    assert out["dry_run"] is True
+
+
+def test_delete_category_not_found_refuses(tmp_path):
+    _, _, server = _delete_server(tmp_path, write_mode="full")
+    out = _tool(server, "delete_category")(name="Nope", confirm_token="x")
+    assert "No category named" in out["error"]
+
+
+def test_delete_then_undo_recreates(tmp_path):
+    svc, journal, server = _delete_server(tmp_path, write_mode="safe")
+    delete = _tool(server, "delete_category")
+    token = delete(name="Groceries")["confirm_token"]
+    delete(name="Groceries", confirm_token=token)
+    undo = _tool(server, "undo_last")()
+    assert undo["reversed"] == 1
+    # recreate called with (name, group_id, icon) — icon defaulted since stub has none
+    assert svc._adapter.created[-1][0] == "Groceries"
+    assert svc._adapter.created[-1][1] == "g1"
+    assert journal.last_undoable_batch() is None
+
+
+# ---------------------------------------------------------------------------
+# undo_last multi-level dispatch across THREE mixed op types (spec §9 extended
+# for Task 6): rename, recategorize, and delete in one journal, reversed
+# newest-first, each dispatched to its correct compensating write.
+# ---------------------------------------------------------------------------
+
+
+def test_undo_last_multi_level_dispatch_across_three_op_types(tmp_path):
+    svc, journal, server = _mixed_ops_server(tmp_path)
+    rename = _tool(server, "rename_category")
+    recat = _tool(server, "recategorize_transaction")
+    delete = _tool(server, "delete_category")
+    undo = _tool(server, "undo_last")
+
+    # Batch A (oldest): rename_category — Groceries -> Food.
+    rename_out = rename(name="Groceries", new_name="Food")
+    assert rename_out["renamed"] == 1
+    batch_a = rename_out["batch_id"]
+
+    # Batch B (middle): recategorize_transaction — tx1 Groceries -> Restaurants.
+    recat_out = recat(transaction_id="tx1", category="Restaurants")
+    assert recat_out["changed"] == 1
+    batch_b = recat_out["batch_id"]
+
+    # Batch C (newest): delete_category — Restaurants (c2). The stub's
+    # get_transactions() is static (always shows tx1 in "Groceries"), so
+    # Restaurants stays empty regardless of the batch-B recat call; delete
+    # still requires the handshake even in 'full' mode.
+    preview = delete(name="Restaurants")
+    assert preview["dry_run"] is True
+    delete_out = delete(name="Restaurants", confirm_token=preview["confirm_token"])
+    assert delete_out["deleted"] == 1
+    batch_c = delete_out["batch_id"]
+
+    assert journal.last_undoable_batch() == batch_c
+
+    # First undo_last reverses the NEWEST batch — the delete, via recreate.
+    first = undo()
+    assert first["batch_id"] == batch_c
+    assert first["reversed"] == 1
+    assert svc._adapter.created[-1][0] == "Restaurants"
+    assert svc._adapter.created[-1][1] == "g1"
+    assert journal.last_undoable_batch() == batch_b
+
+    # Second undo_last reverses the middle batch — the recategorize.
+    second = undo()
+    assert second["batch_id"] == batch_b
+    assert second["reversed"] == 1
+    assert svc._adapter.recategorized[-1] == ("tx1", "c1")
+    assert journal.last_undoable_batch() == batch_a
+
+    # Third undo_last reverses the oldest batch — the rename.
+    third = undo()
+    assert third["batch_id"] == batch_a
+    assert third["reversed"] == 1
+    assert svc._adapter.renamed[-1] == ("c1", "Groceries")
+    assert journal.last_undoable_batch() is None
+
+    # Nothing left to undo.
+    fourth = undo()
+    assert fourth == {"reversed": 0, "message": "nothing to undo"}
