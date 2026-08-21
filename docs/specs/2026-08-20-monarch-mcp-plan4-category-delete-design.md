@@ -1,6 +1,13 @@
 # Monarch MCP — Plan 4 Slice 3: category delete (gated, empty-only, undo-by-recreate) (design)
 
-**Status:** Designed — not yet built.
+**Status:** SHIPPED + MERGED to main 2026-08-21 (merge 385a19a, --no-ff). 277 tests.
+Live-proven against real Monarch 2026-08-20 via a user-driven guided smoke test in
+Claude Desktop: create → dry-run empty-check (transaction_count 0) → confirm-gated
+delete → undo-by-recreate (new Monarch id, as documented) → final cleanup delete,
+with independent verification that the account returned to its exact pre-test baseline
+(107 categories, Shopping's 5 intact). The `DELETE_CATEGORY` mutation shape and success
+signal worked first try, so the §6.4 live-shape risk is CLOSED (no adapter adjustment
+needed). Completes the category CRUD trilogy (create/rename shipped Slice 2 + delete).
 
 **Roadmap slot:** Third write slice (Plan 4). Follows the shipped, live-proven
 Slice 1 (`2026-08-11-monarch-mcp-plan4-recategorization-design.md`) and Slice 2
