@@ -106,3 +106,10 @@ class KeyringCredentialStore:
             keyring.delete_password(self._service, SESSION_USERNAME)
         except keyring.errors.PasswordDeleteError:
             pass  # already absent
+
+
+def make_credential_store(cfg) -> CredentialStore:
+    """Build the configured credential store. Defaults to the file store."""
+    if cfg.credential_store == "keyring":
+        return KeyringCredentialStore(cfg.keyring_service_name)
+    return FileCredentialStore(cfg.credential_file)

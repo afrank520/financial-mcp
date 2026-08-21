@@ -89,3 +89,29 @@ def test_keyring_store_roundtrip_uses_backend():
     store.delete_session()
     assert store.load_session() is None
     store.delete_session()  # absent → no raise
+
+
+def test_factory_defaults_to_file(tmp_path):
+    from financial_mcp.config import Config
+    from financial_mcp.credentials import FileCredentialStore, make_credential_store
+
+    store = make_credential_store(Config(credential_file=str(tmp_path / "s.json")))
+    assert isinstance(store, FileCredentialStore)
+
+
+def test_factory_keyring_when_selected():
+    from financial_mcp.config import Config
+    from financial_mcp.credentials import KeyringCredentialStore, make_credential_store
+
+    store = make_credential_store(Config(credential_store="keyring", keyring_service_name="svc"))
+    assert isinstance(store, KeyringCredentialStore)
+
+
+def test_factory_file_uses_configured_path(tmp_path):
+    from financial_mcp.config import Config
+    from financial_mcp.credentials import make_credential_store
+
+    target = tmp_path / "custom.json"
+    store = make_credential_store(Config(credential_file=str(target)))
+    store.save_session("sid", "csrf")
+    assert target.exists()

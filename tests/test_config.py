@@ -60,3 +60,11 @@ def test_invalid_source_rejected(tmp_path):
         assert False, "expected ValueError"
     except ValueError:
         pass
+
+
+def test_credential_store_defaults_to_file():
+    from financial_mcp.config import Config
+
+    cfg = Config()
+    assert cfg.credential_store == "file"
+    assert cfg.credential_file == "~/.financial_mcp/session.json"
