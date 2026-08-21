@@ -59,6 +59,11 @@ class FileCredentialStore:
             mode = stat.S_IMODE(self._path.stat().st_mode)
         except FileNotFoundError:
             return None
+        except OSError:
+            # Unreadable path (permissions, not-a-directory, etc.): fail closed
+            # so startup falls back to unauthenticated/CSV instead of crashing.
+            logger.warning("could not stat credential file %s; treating as no session", self._path)
+            return None
         if mode & 0o177:
             logger.warning(
                 "credential file %s had loose permissions %o; tightening to 600",

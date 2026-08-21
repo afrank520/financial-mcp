@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 import financial_mcp.login_cli as cli
@@ -169,6 +171,7 @@ def test_migrate_from_keyring_copies_and_clears(monkeypatch):
             dest["sid"], dest["csrf"] = sid, csrf
 
     key = _KeyStore()
+    monkeypatch.setattr(cli, "_load_cfg", lambda: SimpleNamespace(credential_store="file"))
     monkeypatch.setattr(cli, "KeyringCredentialStore", lambda service: key)
     monkeypatch.setattr(cli, "make_credential_store", lambda cfg: _FileStore())
     monkeypatch.setattr(cli, "_service_name", lambda: "svc")
@@ -177,3 +180,27 @@ def test_migrate_from_keyring_copies_and_clears(monkeypatch):
 
     assert dest == {"sid": "sid", "csrf": "csrf"}
     assert key.cleared is True
+
+
+def test_migrate_from_keyring_refuses_when_dest_is_keyring(monkeypatch):
+    """Guard: if config selects the keyring as the destination, migration would
+    save then delete the same entry, losing the session — so it must refuse and
+    never touch the keyring."""
+    touched = {"loaded": False, "deleted": False}
+
+    class _KeyStore:
+        def load_session(self):
+            touched["loaded"] = True
+            return {"session_id": "sid", "csrftoken": "csrf"}
+
+        def delete_session(self):
+            touched["deleted"] = True
+
+    monkeypatch.setattr(cli, "_load_cfg", lambda: SimpleNamespace(credential_store="keyring"))
+    monkeypatch.setattr(cli, "KeyringCredentialStore", lambda service: _KeyStore())
+    monkeypatch.setattr(cli, "_service_name", lambda: "svc")
+
+    with pytest.raises(SystemExit, match="credential_store: keyring"):
+        cli._migrate_from_keyring()
+
+    assert touched == {"loaded": False, "deleted": False}

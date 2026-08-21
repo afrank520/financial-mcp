@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import stat
 
@@ -29,8 +30,10 @@ def test_file_loose_perms_tightened_on_load(tmp_path, caplog):
     store = FileCredentialStore(str(p))
     store.save_session("sid", "csrf")
     os.chmod(p, 0o644)
-    assert store.load_session() == {"session_id": "sid", "csrftoken": "csrf"}
+    with caplog.at_level(logging.WARNING, logger="financial_mcp"):
+        assert store.load_session() == {"session_id": "sid", "csrftoken": "csrf"}
     assert _mode(p) == 0o600
+    assert "loose permissions" in caplog.text
 
 
 def test_file_missing_returns_none(tmp_path):
