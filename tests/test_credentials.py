@@ -62,3 +62,30 @@ def test_file_save_leaves_no_temp_file(tmp_path):
     p = tmp_path / "session.json"
     FileCredentialStore(str(p)).save_session("sid", "csrf")
     assert sorted(x.name for x in tmp_path.iterdir()) == ["session.json"]
+
+
+def test_keyring_store_roundtrip_uses_backend():
+    import keyring
+    from keyring.backends.fail import Keyring as FailKeyring
+
+    class Mem(FailKeyring):
+        priority = 1
+        def __init__(self):
+            self._s = {}
+        def get_password(self, service, username):
+            return self._s.get((service, username))
+        def set_password(self, service, username, password):
+            self._s[(service, username)] = password
+        def delete_password(self, service, username):
+            self._s.pop((service, username), None)
+
+    keyring.set_keyring(Mem())
+    from financial_mcp.credentials import KeyringCredentialStore
+
+    store = KeyringCredentialStore("svc")
+    assert store.load_session() is None
+    store.save_session("sid", "csrf")
+    assert store.load_session() == {"session_id": "sid", "csrftoken": "csrf"}
+    store.delete_session()
+    assert store.load_session() is None
+    store.delete_session()  # absent → no raise

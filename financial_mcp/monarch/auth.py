@@ -1,33 +1,24 @@
+# financial_mcp/monarch/auth.py
+# Legacy shim: credential storage moved to financial_mcp.credentials.
+# Retained so existing imports (community_adapter, tests) keep working.
 from __future__ import annotations
 
-import json
+from financial_mcp.credentials import (
+    DEFAULT_SERVICE,
+    SESSION_USERNAME,
+    KeyringCredentialStore,
+)
 
-import keyring
-
-DEFAULT_SERVICE = "financial_mcp_monarch"
-SESSION_USERNAME = "monarch_session"
+__all__ = ["DEFAULT_SERVICE", "SESSION_USERNAME", "save_session", "load_session", "delete_session"]
 
 
 def save_session(session_id: str, csrftoken: str, service_name: str = DEFAULT_SERVICE) -> None:
-    blob = json.dumps({"session_id": session_id, "csrftoken": csrftoken})
-    keyring.set_password(service_name, SESSION_USERNAME, blob)
+    KeyringCredentialStore(service_name).save_session(session_id, csrftoken)
 
 
 def load_session(service_name: str = DEFAULT_SERVICE) -> dict | None:
-    blob = keyring.get_password(service_name, SESSION_USERNAME)
-    if not blob:
-        return None
-    try:
-        data = json.loads(blob)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(data, dict) or "session_id" not in data or "csrftoken" not in data:
-        return None
-    return {"session_id": data["session_id"], "csrftoken": data["csrftoken"]}
+    return KeyringCredentialStore(service_name).load_session()
 
 
 def delete_session(service_name: str = DEFAULT_SERVICE) -> None:
-    try:
-        keyring.delete_password(service_name, SESSION_USERNAME)
-    except keyring.errors.PasswordDeleteError:
-        pass  # already absent
+    KeyringCredentialStore(service_name).delete_session()

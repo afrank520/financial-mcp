@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import keyring
 import logging
 import os
 import stat
@@ -78,3 +79,30 @@ class FileCredentialStore:
             os.unlink(self._path)
         except FileNotFoundError:
             pass
+
+
+class KeyringCredentialStore:
+    """Today's OS-keyring behavior, behind the CredentialStore interface."""
+
+    def __init__(self, service_name: str = DEFAULT_SERVICE) -> None:
+        self._service = service_name
+
+    def save_session(self, session_id: str, csrftoken: str) -> None:
+        blob = json.dumps({"session_id": session_id, "csrftoken": csrftoken})
+        keyring.set_password(self._service, SESSION_USERNAME, blob)
+
+    def load_session(self) -> dict | None:
+        blob = keyring.get_password(self._service, SESSION_USERNAME)
+        if not blob:
+            return None
+        try:
+            data = json.loads(blob)
+        except json.JSONDecodeError:
+            return None
+        return _validate(data)
+
+    def delete_session(self) -> None:
+        try:
+            keyring.delete_password(self._service, SESSION_USERNAME)
+        except keyring.errors.PasswordDeleteError:
+            pass  # already absent
