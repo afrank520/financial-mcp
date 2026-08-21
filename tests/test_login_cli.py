@@ -48,14 +48,17 @@ def test_empty_blob_raises():
 
 def _patch_tail(monkeypatch):
     """Stub the shared validate+save tail; return a dict that records the save."""
-    saved = {}
     monkeypatch.setattr(cli, "_validate", lambda session: True)
-    monkeypatch.setattr(cli, "_service_name", lambda: "svc")
-    monkeypatch.setattr(
-        cli.auth,
-        "save_session",
-        lambda sid, csrf, svc: saved.update(sid=sid, csrf=csrf, svc=svc),
-    )
+    saved = {}
+
+    class _Store:
+        def save_session(self, sid, csrf):
+            saved["sid"], saved["csrf"] = sid, csrf
+
+        def delete_session(self):
+            saved["deleted"] = True
+
+    monkeypatch.setattr(cli, "make_credential_store", lambda cfg: _Store())
     return saved
 
 
@@ -146,3 +149,31 @@ def test_browser_login_ignores_invalid_timeout_env(monkeypatch):
     cli._browser_login()
 
     assert "timeout_seconds" not in captured
+
+
+def test_migrate_from_keyring_copies_and_clears(monkeypatch):
+    class _KeyStore:
+        def __init__(self):
+            self.cleared = False
+
+        def load_session(self):
+            return {"session_id": "sid", "csrftoken": "csrf"}
+
+        def delete_session(self):
+            self.cleared = True
+
+    dest = {}
+
+    class _FileStore:
+        def save_session(self, sid, csrf):
+            dest["sid"], dest["csrf"] = sid, csrf
+
+    key = _KeyStore()
+    monkeypatch.setattr(cli, "KeyringCredentialStore", lambda service: key)
+    monkeypatch.setattr(cli, "make_credential_store", lambda cfg: _FileStore())
+    monkeypatch.setattr(cli, "_service_name", lambda: "svc")
+
+    cli._migrate_from_keyring()
+
+    assert dest == {"sid": "sid", "csrf": "csrf"}
+    assert key.cleared is True
