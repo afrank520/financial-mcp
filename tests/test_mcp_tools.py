@@ -901,6 +901,37 @@ def _bulk_server(tmp_path, write_mode="safe", batch_cap=200):
     return svc, journal, server
 
 
+class RetailSyncMerchantAdapter(BulkRecatAdapter):
+    """The two plain BulkRecatAdapter Amazon transactions (tx1/tx2, untagged)
+    plus a third Amazon transaction (tx3) tagged 'Retail Sync' — for
+    exercising the retail-sync partition in rename_merchant_matching."""
+
+    def get_transactions(self):
+        tagged = Transaction(
+            id="tx3",
+            date=datetime.date(2026, 1, 4),
+            merchant="Amazon",
+            category="Uncategorized",
+            account="Checking",
+            original_statement="AMZN",
+            notes="",
+            amount=Decimal("-15.00"),
+            tags=["Retail Sync"],
+            owner="A",
+        )
+        return super().get_transactions() + [tagged]
+
+
+def _retail_sync_bulk_server(tmp_path, write_mode="safe", batch_cap=200):
+    from financial_mcp.cache.undo_journal import UndoJournal
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(RetailSyncMerchantAdapter(), cache)
+    journal = UndoJournal(str(tmp_path / "j.db"))
+    server = build_server(svc, write_mode=write_mode, batch_cap=batch_cap, journal=journal)
+    return svc, journal, server
+
+
 def test_bulk_off_mode_refuses(tmp_path):
     svc, journal, server = _bulk_server(tmp_path, write_mode="off")
     tool = _tool(server, "recategorize_matching")
@@ -1045,6 +1076,69 @@ def test_bulk_partial_failure_reports_honestly_and_only_succeeded_undoable(tmp_p
     assert journal.last_undoable_batch() == out["batch_id"]
     rows = journal.undoable_rows(out["batch_id"])
     assert [r["target_id"] for r in rows] == ["tx1"]
+
+
+# ---------------------------------------------------------------------------
+# rename_merchant_matching
+# ---------------------------------------------------------------------------
+
+
+def test_rename_merchant_matching_off_mode_refuses(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="off")
+    tool = _tool(server, "rename_merchant_matching")
+
+    out = tool(to_merchant="Amazon Prime", merchant="Amazon")
+
+    assert "disabled" in out["error"]
+
+
+def test_rename_merchant_matching_dry_run_then_confirm(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "rename_merchant_matching")
+
+    pv = tool(to_merchant="Amazon Prime", merchant="Amazon")
+    assert pv["dry_run"] is True
+    assert pv["would_change"] == 2
+    assert pv["mode"] == "safe"
+
+    out = tool(to_merchant="Amazon Prime", merchant="Amazon", confirm_token=pv["confirm_token"])
+    assert out["changed"] == pv["would_change"]
+    assert out["to"] == "Amazon Prime"
+    assert "batch_id" in out
+    assert journal.last_undoable_batch() == out["batch_id"]
+
+
+def test_rename_merchant_matching_excludes_retail_sync_by_default(tmp_path):
+    svc, journal, server = _retail_sync_bulk_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "rename_merchant_matching")
+
+    pv = tool(to_merchant="Amazon Prime", merchant="Amazon")
+    assert pv["would_change"] == 2
+    assert pv["skipped_retail_sync"] == 1
+
+    pv2 = tool(to_merchant="Amazon Prime", merchant="Amazon", include_retail_sync=True)
+    assert pv2["would_change"] > pv["would_change"]
+    assert pv2["skipped_retail_sync"] == 0
+
+
+def test_rename_merchant_matching_blank_target_refuses(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "rename_merchant_matching")
+
+    out = tool(to_merchant="  ", merchant="Amazon")
+
+    assert "error" in out
+    assert "to_merchant" in out["error"]
+
+
+def test_rename_merchant_matching_over_cap_refuses(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="safe", batch_cap=1)
+    tool = _tool(server, "rename_merchant_matching")
+
+    out = tool(to_merchant="Amazon Prime", merchant="Amazon")
+
+    assert "error" in out
+    assert "over the batch cap" in out["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -1594,3 +1688,20 @@ def test_undo_last_multi_level_dispatch_across_three_op_types(tmp_path):
     # Nothing left to undo.
     fourth = undo()
     assert fourth == {"reversed": 0, "message": "nothing to undo"}
+
+
+def test_undo_last_reverses_rename_merchant(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="full")
+    rename = _tool(server, "rename_merchant_matching")
+    undo = _tool(server, "undo_last")
+
+    out = rename(to_merchant="Amazon Prime", merchant="Amazon")
+    assert out["changed"] == 2
+    batch_id = out["batch_id"]
+    assert journal.last_undoable_batch() == batch_id
+
+    result = undo()
+
+    assert result["reversed"] >= 1
+    assert result["batch_id"] == batch_id
+    assert journal.last_undoable_batch() is None
