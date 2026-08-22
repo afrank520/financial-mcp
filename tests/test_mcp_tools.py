@@ -84,6 +84,12 @@ class FakeAdapter(MonarchAdapter):
     def delete_category(self, category_id):
         raise NotImplementedError("not exercised by these tests")
 
+    def rename_transaction_merchant(self, transaction_id, merchant_name):
+        return "m_" + str(transaction_id)
+
+    def get_transaction_rules(self):
+        return []
+
     def source_name(self):
         return "fake"
 
@@ -1269,6 +1275,12 @@ class CategoryCrudAdapter(MonarchAdapter):
         self.deleted = getattr(self, "deleted", [])
         self.deleted.append(category_id)
         return True
+
+    def rename_transaction_merchant(self, transaction_id, merchant_name):
+        return "m_" + str(transaction_id)
+
+    def get_transaction_rules(self):
+        return []
 
     def source_name(self):
         return "fake"

@@ -92,6 +92,12 @@ class FakeAdapter(MonarchAdapter):
     def delete_category(self, category_id):
         raise NotImplementedError("not exercised by these tests")
 
+    def rename_transaction_merchant(self, transaction_id, merchant_name):
+        return "m_" + str(transaction_id)
+
+    def get_transaction_rules(self):
+        return []
+
     def source_name(self):
         return "fake"
 
@@ -193,6 +199,10 @@ class _StubAdapter(MonarchAdapter):
         raise NotImplementedError("not exercised by these tests")
     def delete_category(self, category_id):
         raise NotImplementedError("not exercised by these tests")
+    def rename_transaction_merchant(self, transaction_id, merchant_name):
+        return "m_" + str(transaction_id)
+    def get_transaction_rules(self):
+        return []
 
 
 def test_balance_history_is_served_and_cached(tmp_path):

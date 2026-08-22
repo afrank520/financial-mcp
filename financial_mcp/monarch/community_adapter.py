@@ -26,9 +26,11 @@ from financial_mcp.monarch.queries import (
     GET_CATEGORIES,
     GET_HOLDINGS,
     GET_RECURRING,
+    GET_TRANSACTION_RULES,
     GET_TRANSACTIONS,
     UPDATE_CATEGORY,
     UPDATE_TRANSACTION_CATEGORY,
+    UPDATE_TRANSACTION_MERCHANT,
 )
 
 GRAPHQL_URL = "https://api.monarch.com/graphql"
@@ -391,3 +393,30 @@ class CommunityAdapter(MonarchAdapter):
         )
         res = (data.get("deleteCategory") or {})
         return bool(res.get("deleted"))
+
+    def rename_transaction_merchant(self, transaction_id: str, merchant_name: str) -> str | None:
+        data = self._run(
+            self._transport(
+                "Web_TransactionDrawerUpdateTransaction", UPDATE_TRANSACTION_MERCHANT,
+                {"input": {"id": transaction_id, "name": merchant_name}},
+            )
+        )
+        txn = (data.get("updateTransaction") or {}).get("transaction") or {}
+        merch = txn.get("merchant") or {}
+        return merch.get("id") if merch.get("name") == merchant_name else None
+
+    def get_transaction_rules(self) -> list[dict]:
+        data = self._run(self._transport("GetTransactionRules", GET_TRANSACTION_RULES, {}))
+        out = []
+        for r in data.get("transactionRules") or []:
+            crit = (r.get("merchantCriteria") or [{}])[0] if r.get("merchantCriteria") else {}
+            sm = r.get("setMerchantAction") or {}
+            sc = r.get("setCategoryAction") or {}
+            out.append({
+                "id": r.get("id"),
+                "operator": crit.get("operator"),
+                "value": crit.get("value"),
+                "set_merchant": sm.get("name"),
+                "set_category": sc.get("name"),
+            })
+        return out
