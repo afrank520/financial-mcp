@@ -60,7 +60,8 @@ def _to_account(d: dict, as_of: datetime.date) -> Account:
 
 def _to_transaction(d: dict) -> Transaction:
     date = datetime.date.fromisoformat(d["date"])
-    merchant = (d.get("merchant") or {}).get("name", "")
+    m = d.get("merchant") or {}
+    merchant = m.get("name", "")
     amount = Decimal(str(d["amount"]))
     original = d.get("plaidName") or ""
     tid = d.get("id") or Transaction.synth_id(date, merchant, amount, original)
@@ -75,6 +76,8 @@ def _to_transaction(d: dict) -> Transaction:
         amount=amount,
         tags=[t["name"] for t in (d.get("tags") or [])],
         owner=d.get("owner") or "",
+        merchant_id=m.get("id") or "",
+        merchant_logo=m.get("logoUrl") or "",
     )
 
 

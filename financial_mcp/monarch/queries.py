@@ -129,6 +129,7 @@ GET_TRANSACTIONS = """
       name
       id
       transactionsCount
+      logoUrl
       __typename
     }
     account {
@@ -323,4 +324,29 @@ mutation Web_DeleteCategory($id: UUID!) {
     __typename
   }
 }
+"""
+
+UPDATE_TRANSACTION_MERCHANT = """
+mutation Web_TransactionDrawerUpdateTransaction($input: UpdateTransactionMutationInput!) {
+  updateTransaction(input: $input) {
+    transaction {
+      id
+      merchant { id name __typename }
+      __typename
+    }
+    __typename
+  }
+}
+"""
+
+GET_TRANSACTION_RULES = """
+  query GetTransactionRules {
+    transactionRules {
+      id
+      merchantCriteria { operator value __typename }
+      setMerchantAction { id name __typename }
+      setCategoryAction { id name __typename }
+      __typename
+    }
+  }
 """
