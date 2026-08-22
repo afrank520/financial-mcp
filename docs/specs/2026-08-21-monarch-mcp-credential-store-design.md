@@ -1,6 +1,16 @@
 # Monarch MCP — Credential store: file-first, keyring opt-in (design)
 
-**Status:** Designed — not yet built.
+**Status:** MERGED to main 2026-08-21 (merge 7ac021d, --no-ff). 292 tests. Built
+via superpowers SDD (6 tasks, per-task spec+quality review, opus whole-branch review
+→ 4 findings fixed → scoped re-review PASS). File store is the default; keyring is
+opt-in; `auth.py` is a re-export shim (test_auth.py fence unedited). Honest docs
+landed in README + config.example.yaml + INSTALL.md (whole-branch review caught a
+stale "never on disk" claim + a smoke test reading the wrong backend in INSTALL.md —
+both fixed). **LIVE-MIGRATION + smoke test PENDING** (proven-at-deploy gate not yet
+closed): the file-first default means the existing live Keychain session won't be
+found until the user runs `financial-mcp-login --migrate-from-keyring` (or a fresh
+`financial-mcp-login`) and confirms a live tool call in Claude Desktop. Mark SHIPPED
++ live-proven only after that.
 
 **Roadmap slot:** A usability + security foundation for **Goal #3 (sharing)**. It
 does not add a user-facing analytics capability; it changes *how the Monarch session
