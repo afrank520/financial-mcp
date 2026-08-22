@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import re
 from decimal import Decimal
 
 from financial_mcp.analytics.spending import search
@@ -103,3 +104,64 @@ def compute_delete_token(category_id: str, transaction_count: int) -> str:
     transaction count so a category that stopped being empty re-previews."""
     key = f"{category_id}:delete:{transaction_count}"
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+
+RETAIL_SYNC_TAG = "Retail Sync"
+
+
+def compute_merchant_token(transaction_ids: list[str], target_merchant: str) -> str:
+    key = "|".join(sorted(transaction_ids)) + "->" + target_merchant
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+
+def build_merchant_inventory(transactions) -> list[dict]:
+    rows: dict[str, dict] = {}
+    for t in transactions:
+        key = t.merchant_id or t.merchant
+        r = rows.get(key)
+        if r is None:
+            r = {"id": t.merchant_id or "", "name": t.merchant, "logo": bool(t.merchant_logo),
+                 "txn_count": 0, "_total": Decimal("0"), "retail_sync": False, "sample_ids": []}
+            rows[key] = r
+        r["txn_count"] += 1
+        r["_total"] += t.amount
+        if RETAIL_SYNC_TAG in (t.tags or []):
+            r["retail_sync"] = True
+        if len(r["sample_ids"]) < 5:
+            r["sample_ids"].append(t.id)
+    out = []
+    for r in rows.values():
+        r["total_amount"] = str(r.pop("_total"))
+        out.append(r)
+    out.sort(key=lambda r: r["txn_count"], reverse=True)
+    return out
+
+
+def _normalize_merchant(name: str) -> str:
+    s = name.lower()
+    s = re.sub(r"[*#].*$", "", s)          # drop id suffixes after * or #
+    s = re.sub(r"\d[\d/.\-]*", " ", s)     # drop numeric / date-ish tokens
+    s = re.sub(r"[^a-z ]", " ", s)         # keep letters only
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def suggest_consolidations(inventory: list[dict], rules: list[dict]) -> list[dict]:
+    curated = [(r, _normalize_merchant(r["name"])) for r in inventory
+               if r["logo"] and not r["retail_sync"]]
+    rule_values = [(rl.get("value") or "").lower() for rl in rules if rl.get("value")]
+    suggestions = []
+    for r in inventory:
+        if r["logo"] or r["retail_sync"]:
+            continue  # curated or extension-managed → not a suggestion
+        stem = _normalize_merchant(r["name"])
+        target = None
+        best_len = 0
+        for crow, cstem in curated:
+            if not cstem or cstem == stem:
+                continue
+            if (cstem in stem or stem.startswith(cstem)) and len(cstem) > best_len:
+                target, best_len = crow["name"], len(cstem)
+        already = any(v and v in r["name"].lower() for v in rule_values)
+        suggestions.append({"merchant": r["name"], "txn_count": r["txn_count"],
+                            "suggested_target": target, "already_ruled": already})
+    return suggestions
