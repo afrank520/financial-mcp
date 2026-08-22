@@ -6,7 +6,7 @@ import sqlite3
 import time
 from collections.abc import Callable
 
-REVERSIBLE_OPS = ("recategorize", "rename_category", "delete_category")
+REVERSIBLE_OPS = ("recategorize", "rename_category", "delete_category", "rename_merchant")
 
 
 class UndoJournal:
@@ -160,6 +160,8 @@ class UndoJournal:
                 summary = f"＋{new_n} (created) ×{n}"
             elif op_type == "delete_category":
                 summary = f"✕ {old_n} (deleted) ×{n}"
+            elif op_type == "rename_merchant":
+                summary = f"{old_n}→{new_n} (merchant) ×{n}"
             else:
                 summary = f"{old_n}→{new_n} ×{n}"
             out.append({

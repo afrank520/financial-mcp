@@ -134,3 +134,25 @@ def test_history_summarizes_delete(tmp_path):
     j.record("b1", "delete_category", "c1", "g1", "🛒", "Groceries", "Groceries")
     j.mark_succeeded("b1", "c1")
     assert j.history()[0]["summary"] == "✕ Groceries (deleted) ×1"
+
+
+def test_rename_merchant_is_reversible(tmp_path):
+    from financial_mcp.cache.undo_journal import UndoJournal
+    j = UndoJournal(str(tmp_path / "c.db"))
+    j.record("b1", "rename_merchant", "t1", "AMZN Mktp US*2X4", "Amazon",
+             "AMZN Mktp US*2X4", "Amazon")
+    j.mark_succeeded("b1", "t1")
+    assert j.last_undoable_batch() == "b1"
+    rows = j.undoable_rows("b1")
+    assert rows[0]["op_type"] == "rename_merchant"
+    assert rows[0]["old_value"] == "AMZN Mktp US*2X4"
+
+
+def test_history_renders_merchant_summary(tmp_path):
+    from financial_mcp.cache.undo_journal import UndoJournal
+    j = UndoJournal(str(tmp_path / "c.db"))
+    j.record("b1", "rename_merchant", "t1", "AMZN*1", "Amazon", "AMZN*1", "Amazon")
+    j.mark_succeeded("b1", "t1")
+    h = j.history()
+    assert "(merchant)" in h[0]["summary"]
+    assert "Amazon" in h[0]["summary"]
