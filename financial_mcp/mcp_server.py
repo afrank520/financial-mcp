@@ -865,9 +865,9 @@ def build_server(
 
     @server.tool()
     def undo_history() -> dict:
-        """Show the reversible recategorization, category-rename, and category-delete batches, newest
-        first: each with a summary (e.g. 'Uncategorized→Shopping ×12'), count, when,
-        and whether it has already been undone.
+        """Show the reversible recategorization, category-rename, category-delete, and
+        merchant-rename batches, newest first: each with a summary (e.g.
+        'Uncategorized→Shopping ×12'), count, when, and whether it has already been undone.
         """
         return _guard(lambda: {"history": journal.history()})
 
