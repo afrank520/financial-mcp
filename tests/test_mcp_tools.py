@@ -1705,3 +1705,109 @@ def test_undo_last_reverses_rename_merchant(tmp_path):
     assert result["reversed"] >= 1
     assert result["batch_id"] == batch_id
     assert journal.last_undoable_batch() is None
+
+
+# ---------------------------------------------------------------------------
+# merchant_cleanup_suggestions
+# ---------------------------------------------------------------------------
+
+
+class MerchantCleanupAdapter(FakeAdapter):
+    """A mix of transactions for merchant_cleanup_suggestions:
+    - a curated 'Amazon' (has a logo + merchant_id) with two transactions,
+    - an uncurated 'AMZN Mktp US*2X4' variant (no logo) that normalizes
+      toward the 'Amazon' stem,
+    - a Retail Sync-tagged 'Target' transaction (no logo) that should be
+      reported separately, not suggested for rename.
+    """
+
+    def get_transactions(self):
+        return [
+            Transaction(
+                id="tx1",
+                date=datetime.date(2026, 1, 2),
+                merchant="Amazon",
+                category="Shopping",
+                account="Checking",
+                original_statement="AMAZON.COM",
+                notes="",
+                amount=Decimal("-10.00"),
+                tags=[],
+                owner="A",
+                merchant_id="m_amazon",
+                merchant_logo="https://logo.example/amazon.png",
+            ),
+            Transaction(
+                id="tx2",
+                date=datetime.date(2026, 1, 3),
+                merchant="AMZN Mktp US*2X4",
+                category="Shopping",
+                account="Checking",
+                original_statement="AMZN MKTP US*2X4",
+                notes="",
+                amount=Decimal("-20.00"),
+                tags=[],
+                owner="A",
+                merchant_id="",
+                merchant_logo="",
+            ),
+            Transaction(
+                id="tx3",
+                date=datetime.date(2026, 1, 4),
+                merchant="Target",
+                category="Shopping",
+                account="Checking",
+                original_statement="TARGET",
+                notes="",
+                amount=Decimal("-30.00"),
+                tags=["Retail Sync"],
+                owner="A",
+                merchant_id="",
+                merchant_logo="",
+            ),
+        ]
+
+
+def _merchant_cleanup_server(tmp_path):
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(MerchantCleanupAdapter(), cache)
+    server = build_server(svc)
+    return svc, server
+
+
+def test_merchant_cleanup_suggestions_surfaces_uncurated(tmp_path):
+    svc, server = _merchant_cleanup_server(tmp_path)
+    tool = _tool(server, "merchant_cleanup_suggestions")
+
+    out = tool()
+
+    assert out["uncurated_count"] >= 1
+    names = [s["merchant"] for s in out["suggestions"]]
+    assert "AMZN Mktp US*2X4" in names
+    assert "curated" not in out
+
+
+def test_merchant_cleanup_suggestions_flags_retail_sync(tmp_path):
+    svc, server = _merchant_cleanup_server(tmp_path)
+    tool = _tool(server, "merchant_cleanup_suggestions")
+
+    out = tool()
+
+    assert out["retail_sync_managed"]
+    assert "Target" in out["retail_sync_managed"]
+    # Retail Sync-managed merchants are not offered as rename suggestions.
+    names = [s["merchant"] for s in out["suggestions"]]
+    assert "Target" not in names
+
+
+def test_merchant_cleanup_suggestions_include_curated(tmp_path):
+    svc, server = _merchant_cleanup_server(tmp_path)
+    tool = _tool(server, "merchant_cleanup_suggestions")
+
+    out_default = tool()
+    assert "curated" not in out_default
+
+    out = tool(include_curated=True)
+    assert "curated" in out
+    curated_names = [r["name"] for r in out["curated"]]
+    assert "Amazon" in curated_names
