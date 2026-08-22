@@ -1,16 +1,22 @@
 # Monarch MCP — Credential store: file-first, keyring opt-in (design)
 
-**Status:** MERGED to main 2026-08-21 (merge 7ac021d, --no-ff). 292 tests. Built
-via superpowers SDD (6 tasks, per-task spec+quality review, opus whole-branch review
-→ 4 findings fixed → scoped re-review PASS). File store is the default; keyring is
-opt-in; `auth.py` is a re-export shim (test_auth.py fence unedited). Honest docs
-landed in README + config.example.yaml + INSTALL.md (whole-branch review caught a
-stale "never on disk" claim + a smoke test reading the wrong backend in INSTALL.md —
-both fixed). **LIVE-MIGRATION + smoke test PENDING** (proven-at-deploy gate not yet
-closed): the file-first default means the existing live Keychain session won't be
-found until the user runs `financial-mcp-login --migrate-from-keyring` (or a fresh
-`financial-mcp-login`) and confirms a live tool call in Claude Desktop. Mark SHIPPED
-+ live-proven only after that.
+**Status:** SHIPPED + MERGED to main 2026-08-21 (merge 7ac021d, --no-ff) + LIVE-PROVEN
+2026-08-22. 292 tests. Built via superpowers SDD (6 tasks, per-task spec+quality review,
+opus whole-branch review → 4 findings fixed → scoped re-review PASS). File store is the
+default; keyring is opt-in; `auth.py` is a re-export shim (test_auth.py fence unedited).
+Honest docs landed in README + config.example.yaml + INSTALL.md (whole-branch review
+caught a stale "never on disk" claim + a smoke test reading the wrong backend in
+INSTALL.md — both fixed).
+
+**Proven-at-deploy gate CLOSED (2026-08-22).** Adam ran
+`financial-mcp-login --migrate-from-keyring` → session copied from Keychain to
+`~/.financial_mcp/session.json` and the Keychain entry removed (one final expected
+prompt on the read). Verified: dir 0o700, file 0o600, shape `{session_id, csrftoken}`
+both non-empty. After Cmd+Q + reopen of Claude Desktop, a regular-chat smoke test
+("What are my account balances?") returned a **fresh live sync (age 0h, 41 accounts,
+net worth ~$2,092,130) with NO Keychain prompt and no CSV/unauthenticated fallback** —
+the server loaded the session from the file store and hit Monarch live. The scary
+unbranded "Python wants to use…" prompt is gone from the default experience.
 
 **Roadmap slot:** A usability + security foundation for **Goal #3 (sharing)**. It
 does not add a user-facing analytics capability; it changes *how the Monarch session
