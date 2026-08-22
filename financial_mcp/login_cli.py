@@ -6,14 +6,17 @@ import sys
 from pathlib import Path
 
 from financial_mcp.config import load_config
-from financial_mcp.monarch import auth
+from financial_mcp.credentials import KeyringCredentialStore, make_credential_store
 
 _WANTED = ("session_id", "csrftoken")
 
 
+def _load_cfg():
+    return load_config(os.environ.get("FINANCIAL_MCP_CONFIG"))
+
+
 def _service_name() -> str:
-    cfg = load_config(os.environ.get("FINANCIAL_MCP_CONFIG"))
-    return cfg.keyring_service_name
+    return _load_cfg().keyring_service_name
 
 
 def parse_curl_cookies(blob: str) -> dict:
@@ -140,14 +143,37 @@ def _login(force_curl: bool = False) -> None:
         session = _curl_login()
     if not _validate(session):
         raise SystemExit("Login failed. Try again with a fresh session.")
-    auth.save_session(session["session_id"], session["csrftoken"], _service_name())
-    print("Signed in — session saved to Keychain.")
+    make_credential_store(_load_cfg()).save_session(session["session_id"], session["csrftoken"])
+    print("Signed in — session saved.")
+
+
+def _migrate_from_keyring() -> None:
+    cfg = _load_cfg()
+    if cfg.credential_store == "keyring":
+        # The destination store IS the keyring; migrating keyring->keyring would
+        # save then delete the same entry, losing the session. Refuse.
+        raise SystemExit(
+            "Nothing to migrate: config has credential_store: keyring, so the "
+            "destination IS the keyring. Set credential_store: file (or leave it "
+            "unset — file is the default) before running --migrate-from-keyring."
+        )
+    src = KeyringCredentialStore(_service_name())  # one keyring read (may prompt once)
+    session = src.load_session()
+    if not session:
+        print("No keyring session found to migrate.")
+        return
+    make_credential_store(cfg).save_session(session["session_id"], session["csrftoken"])
+    src.delete_session()
+    print("Migrated session from keyring to the file store; keyring entry removed.")
 
 
 def main() -> None:
+    if "--migrate-from-keyring" in sys.argv:
+        _migrate_from_keyring()
+        return
     if "--logout" in sys.argv:
-        auth.delete_session(_service_name())
-        print("Logged out — session removed from Keychain.")
+        make_credential_store(_load_cfg()).delete_session()
+        print("Logged out — session removed.")
         return
     _login(force_curl="--curl" in sys.argv)
 

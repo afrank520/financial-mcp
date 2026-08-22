@@ -1,5 +1,6 @@
 # Copy to config.yaml (git-ignored) and edit. NEVER put secrets here —
-# credentials live in the OS keyring, set via `financial-mcp-login`.
+# credentials live in a local file or the OS keyring (see credential_store
+# below), set via `financial-mcp-login`.
 
 db_path: cache.db
 log_level: INFO
@@ -28,7 +29,12 @@ csv_balances_path: null
 
 # Data source: "csv" = offline Plan-1 exports | "live" = Monarch API.
 # Run `financial-mcp-login` once before using "live" — it stores your Monarch
-# session cookies (session_id + csrftoken) in the OS keyring. If "live" is set
-# but no session is stored, the server logs a warning and falls back to CSV.
+# session. If "live" is set but no session is stored, the server logs a
+# warning and falls back to CSV.
 source: csv
 keyring_service_name: financial_mcp_monarch
+
+# credentials: file store by default (~/.financial_mcp/session.json, chmod 600).
+# Set credential_store: keyring for OS-keyring storage (may prompt once on macOS).
+# credential_store: file
+# credential_file: ~/.financial_mcp/session.json

@@ -12,3 +12,15 @@ your Monarch Money data. Personal use, runs entirely on your Mac, no hosting.
 
 See `docs/specs/2026-07-15-monarch-mcp-server-design.md` for the full design and
 `docs/INSTALL.md` to get running.
+
+### Where your credentials live
+
+Your Monarch session is stored in a file only your user account can read
+(`~/.financial_mcp/session.json`, permissions `600`) — the same way the GitHub
+CLI stores its token. This protects against accidental sharing and other users
+on your computer. It is **not** encrypted at rest; rely on your disk encryption
+(e.g. FileVault) to protect a lost or stolen machine.
+
+For OS-managed encryption at rest, set `credential_store: keyring` in your
+config (macOS may prompt once to allow access). To move an existing keyring
+session into the file store, run `financial-mcp-login --migrate-from-keyring`.

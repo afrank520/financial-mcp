@@ -20,14 +20,22 @@ def test_csv_source_without_paths_exits():
 
 
 def test_live_with_session_builds_community_adapter(monkeypatch):
-    monkeypatch.setattr("financial_mcp.main.auth.load_session", lambda service: _SESSION)
+    class _Store:
+        def load_session(self):
+            return _SESSION
+
+    monkeypatch.setattr("financial_mcp.main.make_credential_store", lambda cfg: _Store())
     cfg = Config(source="live")
     adapter = build_adapter(cfg)
     assert isinstance(adapter, CommunityAdapter)
 
 
 def test_live_without_session_falls_back_to_csv(monkeypatch, caplog):
-    monkeypatch.setattr("financial_mcp.main.auth.load_session", lambda service: None)
+    class _Store:
+        def load_session(self):
+            return None
+
+    monkeypatch.setattr("financial_mcp.main.make_credential_store", lambda cfg: _Store())
     cfg = Config(source="live", csv_transactions_path="t.csv", csv_balances_path="b.csv")
     import logging
 
@@ -38,7 +46,11 @@ def test_live_without_session_falls_back_to_csv(monkeypatch, caplog):
 
 
 def test_live_without_session_and_no_csv_exits(monkeypatch):
-    monkeypatch.setattr("financial_mcp.main.auth.load_session", lambda service: None)
+    class _Store:
+        def load_session(self):
+            return None
+
+    monkeypatch.setattr("financial_mcp.main.make_credential_store", lambda cfg: _Store())
     cfg = Config(source="live")
     with pytest.raises(SystemExit):
         build_adapter(cfg)

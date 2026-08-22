@@ -33,6 +33,8 @@ class Config(BaseModel):
     csv_balances_path: str | None = None
     source: Literal["csv", "live"] = "csv"
     keyring_service_name: str = "financial_mcp_monarch"
+    credential_store: Literal["file", "keyring"] = "file"
+    credential_file: str = "~/.financial_mcp/session.json"
 
 
 def load_config(path: str | None = None) -> Config:

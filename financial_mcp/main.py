@@ -7,8 +7,8 @@ from financial_mcp.cache.sqlite_cache import SqliteCache
 from financial_mcp.cache.undo_journal import UndoJournal
 from financial_mcp.config import Config, load_config
 from financial_mcp.data_service import DataService
+from financial_mcp.credentials import make_credential_store
 from financial_mcp.mcp_server import build_server
-from financial_mcp.monarch import auth
 from financial_mcp.monarch.adapter import MonarchAdapter
 from financial_mcp.monarch.community_adapter import CommunityAdapter
 from financial_mcp.monarch.csv_adapter import CsvAdapter
@@ -28,9 +28,9 @@ def _csv_or_exit(cfg: Config) -> MonarchAdapter:
 
 def build_adapter(cfg: Config) -> MonarchAdapter:
     if cfg.source == "live":
-        session = auth.load_session(cfg.keyring_service_name)
+        session = make_credential_store(cfg).load_session()
         if session:
-            return CommunityAdapter(session, cfg.keyring_service_name)
+            return CommunityAdapter(session)
         logger.warning("no Monarch session — run `financial-mcp-login`; falling back to CSV")
         return _csv_or_exit(cfg)
     return _csv_or_exit(cfg)

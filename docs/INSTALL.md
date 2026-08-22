@@ -34,8 +34,14 @@ deeper analytics (Plan 3), and writes (Plan 4) come next.
 ## Plan 2 — Live Monarch sync (cookie auth)
 
 Monarch's API requires a logged-in browser session (there is no public token/OAuth).
-`financial-mcp-login` reads your session cookies once and stores them in the macOS
-Keychain — never your password, never on disk.
+`financial-mcp-login` reads your session cookies once (never your password) and stores
+them in a permission-locked file only your user account can read
+(`~/.financial_mcp/session.json`, permissions `600`) — the same way the GitHub CLI
+stores its token. It is **not** encrypted at rest; rely on your disk encryption
+(e.g. FileVault) to protect a lost or stolen machine. For OS-managed encryption at
+rest, set `credential_store: keyring` in `config.yaml` (macOS may prompt once to allow
+access); to move an existing keyring session into the file store, run
+`financial-mcp-login --migrate-from-keyring`.
 
 ### 1. Log in once (terminal, not Claude)
 ```bash
@@ -47,8 +53,9 @@ financial-mcp-login
 4. Right-click it → **Copy → Copy as cURL**.
 5. Paste it into the terminal at the prompt, then press **Ctrl-D**.
 
-The command extracts only `session_id` + `csrftoken` and stores them in your Keychain;
-every other cookie in the paste is discarded. To log out: `financial-mcp-login --logout`.
+The command extracts only `session_id` + `csrftoken` and stores them in your configured
+credential store (the file store by default); every other cookie in the paste is
+discarded. To log out: `financial-mcp-login --logout`.
 
 ### 2. Switch config to live
 In `config.yaml`:
@@ -60,10 +67,10 @@ source: live
 ```bash
 FINANCIAL_MCP_CONFIG=config.yaml python -c "
 from financial_mcp.config import load_config
-from financial_mcp.monarch import auth
+from financial_mcp.credentials import make_credential_store
 from financial_mcp.monarch.community_adapter import CommunityAdapter
 cfg = load_config('config.yaml')
-a = CommunityAdapter(auth.load_session(cfg.keyring_service_name), cfg.keyring_service_name)
+a = CommunityAdapter(make_credential_store(cfg).load_session())
 print('accounts:', [x.name for x in a.get_accounts()])
 print('transactions:', len(a.get_transactions()))
 "
