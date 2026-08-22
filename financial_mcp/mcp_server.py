@@ -188,19 +188,23 @@ def build_server(
         Retail Sync extension are listed separately and NOT suggested for rename
         (leave those to the extension). Nothing is mutated.
         """
-        inv = writes.build_merchant_inventory(svc.transactions())
-        rules = svc.transaction_rules()
-        suggestions = writes.suggest_consolidations(inv, rules)
-        retail = [r["name"] for r in inv if r["retail_sync"]]
-        result = {
-            "uncurated_count": sum(1 for r in inv if not r["logo"] and not r["retail_sync"]),
-            "suggestions": suggestions[:limit],
-            "retail_sync_managed": retail,
-            "note": "read-only advisory; use rename_merchant_matching to act on a suggestion",
-        }
-        if include_curated:
-            result["curated"] = [r for r in inv if r["logo"]][:limit]
-        return result
+        def _run():
+            clamped_limit = _clamp_limit(limit)
+            inv = writes.build_merchant_inventory(svc.transactions())
+            rules = svc.transaction_rules()
+            suggestions = writes.suggest_consolidations(inv, rules)
+            retail = [r["name"] for r in inv if r["retail_sync"]]
+            result = {
+                "uncurated_count": sum(1 for r in inv if not r["logo"] and not r["retail_sync"]),
+                "suggestions": suggestions[:clamped_limit],
+                "retail_sync_managed": retail,
+                "note": "read-only advisory; use rename_merchant_matching to act on a suggestion",
+            }
+            if include_curated:
+                result["curated"] = [r for r in inv if r["logo"]][:clamped_limit]
+            return result
+
+        return _guard(_run)
 
     @server.tool()
     def monthly_spending(year: int) -> dict:
