@@ -127,6 +127,15 @@ class DataService:
         self._cache.invalidate("categories")
         return applied
 
+    def rename_merchant(self, transaction_id: str, merchant_name: str) -> str | None:
+        result = self._adapter.rename_transaction_merchant(transaction_id, merchant_name)
+        # The merchant name rides on cached transactions — force a re-pull next read.
+        self._cache.invalidate("transactions")
+        return result
+
+    def transaction_rules(self) -> list[dict]:
+        return self._adapter.get_transaction_rules()
+
     def freshness(self, data_type: str) -> dict:
         """Freshness metadata (as_of, age_seconds, fresh) for one data type."""
         return self._cache.freshness(data_type)
