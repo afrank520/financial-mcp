@@ -156,3 +156,24 @@ def test_history_renders_merchant_summary(tmp_path):
     h = j.history()
     assert "(merchant)" in h[0]["summary"]
     assert "Amazon" in h[0]["summary"]
+
+
+def test_create_rule_is_reversible(tmp_path):
+    from financial_mcp.cache.undo_journal import UndoJournal
+    j = UndoJournal(str(tmp_path / "c.db"))
+    j.record("b1", "create_rule", "r2", "AMZN", "Amazon", "AMZN", "Amazon")
+    j.mark_succeeded("b1", "r2")
+    assert j.last_undoable_batch() == "b1"
+    rows = j.undoable_rows("b1")
+    assert rows[0]["op_type"] == "create_rule"
+    assert rows[0]["target_id"] == "r2"
+    assert rows[0]["old_value"] == "AMZN"
+
+
+def test_history_renders_rule_summary(tmp_path):
+    from financial_mcp.cache.undo_journal import UndoJournal
+    j = UndoJournal(str(tmp_path / "c.db"))
+    j.record("b1", "create_rule", "r2", "AMZN", "Amazon", "AMZN", "Amazon")
+    j.mark_succeeded("b1", "r2")
+    h = j.history()
+    assert "AMZN" in h[0]["summary"] and "Amazon" in h[0]["summary"]
