@@ -350,3 +350,22 @@ GET_TRANSACTION_RULES = """
     }
   }
 """
+
+CREATE_TRANSACTION_RULE = """
+  mutation Common_CreateTransactionRuleMutationV2($input: CreateTransactionRuleInput!) {
+    createTransactionRuleV2(input: $input) {
+      errors { message code __typename }
+      __typename
+    }
+  }
+"""
+
+DELETE_TRANSACTION_RULE = """
+  mutation Common_DeleteTransactionRule($id: ID!) {
+    deleteTransactionRule(id: $id) {
+      deleted
+      errors { message code __typename }
+      __typename
+    }
+  }
+"""

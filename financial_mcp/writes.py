@@ -165,3 +165,35 @@ def suggest_consolidations(inventory: list[dict], rules: list[dict]) -> list[dic
         suggestions.append({"merchant": r["name"], "txn_count": r["txn_count"],
                             "suggested_target": target, "already_ruled": already})
     return suggestions
+
+
+def _rename_rule_input(contains: str, rename_to: str) -> dict:
+    """Build the CreateTransactionRuleInput for a FUTURE-ONLY merchant-rename rule.
+
+    Mirrors the exact payload captured from the Monarch web app 2026-08-23: only
+    the match criterion, the rename action, and the (always-false) apply flag are
+    populated; every other field is sent explicit-null to match the app and avoid
+    a "non-null field missing" 400.
+    """
+    return {
+        "accountIds": None,
+        "categoryIds": None,
+        "amountCriteria": None,
+        "merchantCriteria": None,
+        "originalStatementCriteria": None,
+        "merchantCriteriaUseOriginalStatement": False,
+        "merchantNameCriteria": [{"operator": "contains", "value": contains}],
+        "setMerchantAction": rename_to,
+        "applyToExistingTransactions": False,
+        "addTagsAction": None,
+        "linkGoalAction": None,
+        "linkSavingsGoalAction": None,
+        "reviewStatusAction": None,
+        "setCategoryAction": None,
+        "splitTransactionsAction": None,
+    }
+
+
+def compute_rule_token(contains: str, rename_to: str) -> str:
+    key = contains + "->" + rename_to
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
