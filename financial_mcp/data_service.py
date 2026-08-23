@@ -136,6 +136,12 @@ class DataService:
     def transaction_rules(self) -> list[dict]:
         return self._adapter.get_transaction_rules()
 
+    def create_merchant_rule(self, contains: str, rename_to: str) -> tuple[bool, str | None]:
+        return self._adapter.create_transaction_rule(contains, rename_to)
+
+    def delete_transaction_rule(self, rule_id: str) -> bool:
+        return self._adapter.delete_transaction_rule(rule_id)
+
     def freshness(self, data_type: str) -> dict:
         """Freshness metadata (as_of, age_seconds, fresh) for one data type."""
         return self._cache.freshness(data_type)

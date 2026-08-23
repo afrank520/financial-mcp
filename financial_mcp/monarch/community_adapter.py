@@ -16,7 +16,9 @@ from financial_mcp.monarch.models import (
 )
 from financial_mcp.monarch.queries import (
     CREATE_CATEGORY,
+    CREATE_TRANSACTION_RULE,
     DELETE_CATEGORY,
+    DELETE_TRANSACTION_RULE,
     GET_ACCOUNT_SNAPSHOTS,
     GET_ACCOUNTS,
     GET_ACCOUNTS_MIN,
@@ -32,6 +34,7 @@ from financial_mcp.monarch.queries import (
     UPDATE_TRANSACTION_CATEGORY,
     UPDATE_TRANSACTION_MERCHANT,
 )
+from financial_mcp.writes import _rename_rule_input
 
 GRAPHQL_URL = "https://api.monarch.com/graphql"
 # A real-browser User-Agent keeps us clear of any future Cloudflare UA rule.
@@ -420,3 +423,21 @@ class CommunityAdapter(MonarchAdapter):
                 "set_category": sc.get("name"),
             })
         return out
+
+    def create_transaction_rule(self, contains: str, rename_to: str) -> tuple[bool, str | None]:
+        before = {r["id"] for r in self.get_transaction_rules()}
+        payload = self._run(self._transport(
+            "Common_CreateTransactionRuleMutationV2", CREATE_TRANSACTION_RULE,
+            {"input": _rename_rule_input(contains, rename_to)}))
+        errors = ((payload.get("createTransactionRuleV2") or {}).get("errors")) or []
+        if errors:
+            return (False, None)
+        after = self.get_transaction_rules()
+        new = [r["id"] for r in after if r["id"] not in before]
+        return (True, new[0]) if len(new) == 1 else (True, None)
+
+    def delete_transaction_rule(self, rule_id: str) -> bool:
+        data = self._run(self._transport(
+            "Common_DeleteTransactionRule", DELETE_TRANSACTION_RULE, {"id": rule_id}))
+        res = data.get("deleteTransactionRule") or {}
+        return bool(res.get("deleted")) and not (res.get("errors") or [])

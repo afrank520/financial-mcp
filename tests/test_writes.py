@@ -192,3 +192,26 @@ def test_suggest_consolidations_marks_already_ruled_and_excludes_retail_sync():
     sugg = {s["merchant"]: s for s in suggest_consolidations(inv, rules)}
     assert sugg["AMZN Mktp US*2X4"]["already_ruled"] is True
     assert "Junk Co" not in sugg  # retail-sync-managed → excluded from suggestions
+
+
+def test_rename_rule_input_shape():
+    from financial_mcp.writes import _rename_rule_input
+    inp = _rename_rule_input("AMZN", "Amazon")
+    assert inp["merchantNameCriteria"] == [{"operator": "contains", "value": "AMZN"}]
+    assert inp["setMerchantAction"] == "Amazon"
+    assert inp["applyToExistingTransactions"] is False
+    # every other field is present and null (mirrors the captured payload)
+    for k in ("accountIds", "categoryIds", "amountCriteria", "merchantCriteria",
+              "originalStatementCriteria", "addTagsAction", "linkGoalAction",
+              "linkSavingsGoalAction", "reviewStatusAction", "setCategoryAction",
+              "splitTransactionsAction"):
+        assert inp[k] is None
+    assert inp["merchantCriteriaUseOriginalStatement"] is False
+
+
+def test_compute_rule_token_stable_and_sensitive():
+    from financial_mcp.writes import compute_rule_token
+    a = compute_rule_token("AMZN", "Amazon")
+    assert a == compute_rule_token("AMZN", "Amazon") and len(a) == 16
+    assert compute_rule_token("AMZN", "Amazon") != compute_rule_token("AMZN", "Amazon Inc")
+    assert compute_rule_token("AMZN", "Amazon") != compute_rule_token("AMZ", "Amazon")
