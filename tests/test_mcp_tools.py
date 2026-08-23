@@ -1823,3 +1823,166 @@ def test_merchant_cleanup_suggestions_include_curated(tmp_path):
     assert "curated" in out
     curated_names = [r["name"] for r in out["curated"]]
     assert "Amazon" in curated_names
+
+
+# ---------------------------------------------------------------------------
+# create_merchant_rule
+# ---------------------------------------------------------------------------
+
+
+class RuleAdapter(BulkRecatAdapter):
+    """BulkRecatAdapter's two Amazon transactions plus an in-memory
+    transaction-rules store so create/delete/list round-trip like a real
+    Monarch rules API."""
+
+    def __init__(self):
+        self.rules: list[dict] = []
+        self._next_id = 1
+
+    def get_transaction_rules(self):
+        return list(self.rules)
+
+    def create_transaction_rule(self, contains, rename_to):
+        rule_id = f"rule{self._next_id}"
+        self._next_id += 1
+        self.rules.append({"id": rule_id, "operator": "contains", "value": contains,
+                            "set_merchant": rename_to, "set_category": None})
+        return (True, rule_id)
+
+    def delete_transaction_rule(self, rule_id):
+        before = len(self.rules)
+        self.rules = [r for r in self.rules if r["id"] != rule_id]
+        return len(self.rules) < before
+
+
+class DecliningRuleAdapter(RuleAdapter):
+    """create_transaction_rule always reports Monarch declining the write."""
+
+    def create_transaction_rule(self, contains, rename_to):
+        return (False, None)
+
+
+class UncapturableIdRuleAdapter(RuleAdapter):
+    """create_transaction_rule succeeds but Monarch's response didn't carry
+    a usable rule id (the honest-degradation path)."""
+
+    def create_transaction_rule(self, contains, rename_to):
+        return (True, None)
+
+
+def _rule_server(tmp_path, adapter=None, write_mode="safe", batch_cap=200):
+    from financial_mcp.cache.undo_journal import UndoJournal
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(adapter or RuleAdapter(), cache)
+    journal = UndoJournal(str(tmp_path / "j.db"))
+    server = build_server(svc, write_mode=write_mode, batch_cap=batch_cap, journal=journal)
+    return svc, journal, server
+
+
+def test_create_merchant_rule_off_mode_refuses(tmp_path):
+    svc, journal, server = _rule_server(tmp_path, write_mode="off")
+    tool = _tool(server, "create_merchant_rule")
+
+    out = tool("Amazon", "Amazon.com")
+
+    assert "error" in out
+    assert svc._adapter.rules == []
+
+
+def test_create_merchant_rule_blank_refuses(tmp_path):
+    svc, journal, server = _rule_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "create_merchant_rule")
+
+    assert "error" in tool("  ", "Amazon.com")
+    assert "error" in tool("Amazon", " ")
+
+
+def test_create_merchant_rule_dry_run_then_confirm(tmp_path):
+    svc, journal, server = _rule_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "create_merchant_rule")
+
+    preview = tool("Amazon", "Amazon.com")
+
+    assert preview["dry_run"] is True
+    assert preview["rule"] == {"contains": "Amazon", "rename_to": "Amazon.com",
+                                "apply_to_existing": False}
+    # BulkRecatAdapter's two Amazon transactions match — shown, but NOT changed.
+    assert preview["existing_matches"] == 2
+    assert preview["message"]
+    assert "future" in preview["message"].lower()
+    assert "confirm_token" in preview
+    assert svc._adapter.rules == []  # nothing created on preview
+
+    out = tool("Amazon", "Amazon.com", confirm_token=preview["confirm_token"])
+
+    assert out["created"] is True
+    assert out["rule_id"]
+    assert "undo_available" not in out
+    assert len(svc._adapter.rules) == 1
+    assert journal.last_undoable_batch() is not None
+
+
+def test_create_merchant_rule_full_mode_executes_without_token(tmp_path):
+    svc, journal, server = _rule_server(tmp_path, write_mode="full")
+    tool = _tool(server, "create_merchant_rule")
+
+    out = tool("Amazon", "Amazon.com")
+
+    assert out["created"] is True
+    assert out["rule_id"]
+    assert len(svc._adapter.rules) == 1
+
+
+def test_create_merchant_rule_duplicate_guard_refuses(tmp_path):
+    adapter = RuleAdapter()
+    adapter.rules.append({"id": "rule0", "operator": "contains", "value": "Amazon",
+                          "set_merchant": "Amazon.com", "set_category": None})
+    svc, journal, server = _rule_server(tmp_path, adapter=adapter, write_mode="safe")
+    tool = _tool(server, "create_merchant_rule")
+
+    out = tool("Amazon", "Amazon.com")
+
+    assert out["existing_rule_id"] == "rule0"
+    assert len(svc._adapter.rules) == 1  # refused, nothing new created
+
+
+def test_create_merchant_rule_declined_reports_created_false(tmp_path):
+    svc, journal, server = _rule_server(tmp_path, adapter=DecliningRuleAdapter(),
+                                         write_mode="full")
+    tool = _tool(server, "create_merchant_rule")
+
+    out = tool("Amazon", "Amazon.com")
+
+    assert out["created"] is False
+    assert "reason" in out
+    assert journal.last_undoable_batch() is None  # no journal entry on decline
+
+
+def test_create_merchant_rule_uncapturable_id_briefs_user(tmp_path):
+    svc, journal, server = _rule_server(tmp_path, adapter=UncapturableIdRuleAdapter(),
+                                         write_mode="full")
+    tool = _tool(server, "create_merchant_rule")
+
+    out = tool("Amazon", "Amazon.com")
+
+    assert out["created"] is True
+    assert out["rule_id"] is None
+    assert out["undo_available"] is False
+    assert out["note"]
+    assert journal.last_undoable_batch() is None  # no journal entry when id uncapturable
+
+
+def test_undo_last_reverses_create_rule(tmp_path):
+    svc, journal, server = _rule_server(tmp_path, write_mode="full")
+    create = _tool(server, "create_merchant_rule")
+    undo = _tool(server, "undo_last")
+
+    out = create("Amazon", "Amazon.com")
+    rule_id = out["rule_id"]
+    assert rule_id in [r["id"] for r in svc._adapter.rules]
+
+    result = undo()
+
+    assert result["reversed"] >= 1
+    assert rule_id not in [r["id"] for r in svc._adapter.rules]

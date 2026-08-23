@@ -207,6 +207,81 @@ def build_server(
         return _guard(_run)
 
     @server.tool()
+    def create_merchant_rule(
+        contains: str, rename_to: str, confirm_token: str | None = None
+    ) -> dict:
+        """Create a Monarch rule that renames the merchant on FUTURE transactions.
+
+        Whenever a newly-imported transaction's merchant name CONTAINS `contains`,
+        Monarch will rename its merchant to `rename_to`. This is future-only: it
+        does NOT touch transactions you already have (run rename_merchant_matching
+        first for those — the dry-run tells you how many exist). In 'safe' mode
+        this is two-phase: call without confirm_token to preview (nothing is
+        created) and get a confirm_token, then call again with it to create. In
+        'full' mode it creates directly. Reversible via undo_last (which deletes
+        the rule).
+        """
+        disabled = _writes_enabled()
+        if disabled:
+            return {"error": disabled}
+        if not contains or not contains.strip():
+            return {"error": "contains must be a non-empty phrase"}
+        if not rename_to or not rename_to.strip():
+            return {"error": "rename_to must be a non-empty name"}
+
+        def _run():
+            # Duplicate guard (best-effort; fails open — see spec §6).
+            for rule in svc.transaction_rules():
+                if ((rule.get("value") or "").strip().lower() == contains.strip().lower()
+                        and (rule.get("set_merchant") or "") == rename_to):
+                    return {"refused": "a rule for this already exists",
+                            "existing_rule_id": rule.get("id")}
+
+            existing = len(writes.match_transactions(svc.transactions(), merchant=contains))
+            token = writes.compute_rule_token(contains, rename_to)
+
+            if write_mode == "safe" and (confirm_token is None or confirm_token != token):
+                return {
+                    "dry_run": True,
+                    "rule": {"contains": contains, "rename_to": rename_to,
+                             "apply_to_existing": False},
+                    "existing_matches": existing,
+                    "message": (
+                        f"This rule will rename FUTURE transactions whose merchant "
+                        f"contains '{contains}' to '{rename_to}'. I'm showing you the "
+                        f"{existing} existing transactions it matches so you know they "
+                        f"will NOT be changed — a new rule only applies to transactions "
+                        f"imported from now on. If you also want those {existing} cleaned "
+                        f"up now, run rename_merchant_matching first. Confirm to create "
+                        f"the rule."),
+                    "confirm_token": token,
+                    "mode": write_mode,
+                    "note": "no rule created yet",
+                }
+
+            created, rule_id = svc.create_merchant_rule(contains, rename_to)
+            if not created:
+                return {"created": False,
+                        "reason": "Monarch declined to create the rule"}
+            if rule_id is None:
+                return {"created": True, "rule_id": None, "undo_available": False,
+                        "contains": contains, "rename_to": rename_to,
+                        "applied_to_existing": False,
+                        "note": ("Rule created, but I couldn't capture its id to enable "
+                                 "one-click undo. If you change your mind, delete it in "
+                                 "Monarch → Settings → Rules.")}
+            batch_id = uuid.uuid4().hex
+            journal.record(batch_id, "create_rule", rule_id, contains, rename_to,
+                           contains, rename_to)
+            journal.mark_succeeded(batch_id, rule_id)
+            return {"created": True, "rule_id": rule_id, "contains": contains,
+                    "rename_to": rename_to, "applied_to_existing": False,
+                    "existing_matches": existing,
+                    "undo_hint": "call undo_last to delete this rule"}
+
+        return _guard(_run)
+
+    @server.tool()
     def monthly_spending(year: int) -> dict:
         """Monthly total spend (negative amounts) for the given year.
 
@@ -806,10 +881,11 @@ def build_server(
     @server.tool()
     def undo_last() -> dict:
         """Reverse the most recent recategorization, category-rename, category-delete,
-        or merchant-rename batch (multi-level: call again to step back to the
-        previous one). Undo is a compensating write — it re-sets each item to
+        merchant-rename, or created-rule batch (multi-level: call again to step back
+        to the previous one). Undo is a compensating write — it re-sets each item to
         the value it had when the write ran; deletions are reversed by recreating
-        the category. Does not detect edits you made afterward.
+        the category; created rules are reversed by deleting the rule. Does not
+        detect edits you made afterward.
         Refuses in write_mode 'off'.
         """
         disabled = _writes_enabled()
@@ -832,6 +908,8 @@ def build_server(
                     ok = bool(svc.create_category(r["label_old"], r["old_value"], r["new_value"]))
                 elif r["op_type"] == "rename_merchant":
                     ok = bool(svc.rename_merchant(r["target_id"], r["old_value"]))
+                elif r["op_type"] == "create_rule":
+                    ok = svc.delete_transaction_rule(r["target_id"])
                 else:
                     ok = False
                 if ok:
@@ -847,6 +925,9 @@ def build_server(
                     elif r["op_type"] == "rename_merchant":
                         failures.append({"transaction_id": r["target_id"],
                                          "reason": "Monarch did not apply the merchant rename"})
+                    elif r["op_type"] == "create_rule":
+                        failures.append({"rule_id": r["target_id"],
+                                         "reason": "Monarch did not delete the rule"})
                     else:
                         failures.append({"category_id": r["target_id"],
                                          "reason": "Monarch did not apply the rename"})
@@ -865,9 +946,10 @@ def build_server(
 
     @server.tool()
     def undo_history() -> dict:
-        """Show the reversible recategorization, category-rename, category-delete, and
-        merchant-rename batches, newest first: each with a summary (e.g.
-        'Uncategorized→Shopping ×12'), count, when, and whether it has already been undone.
+        """Show the reversible recategorization, category-rename, category-delete,
+        merchant-rename, and created-rule batches, newest first: each with a summary
+        (e.g. 'Uncategorized→Shopping ×12'), count, when, and whether it has already
+        been undone.
         """
         return _guard(lambda: {"history": journal.history()})
 
