@@ -90,6 +90,12 @@ class FakeAdapter(MonarchAdapter):
     def get_transaction_rules(self):
         return []
 
+    def create_transaction_rule(self, contains, rename_to):
+        return (False, None)
+
+    def delete_transaction_rule(self, rule_id):
+        return False
+
     def source_name(self):
         return "fake"
 
@@ -1375,6 +1381,12 @@ class CategoryCrudAdapter(MonarchAdapter):
 
     def get_transaction_rules(self):
         return []
+
+    def create_transaction_rule(self, contains, rename_to):
+        return (False, None)
+
+    def delete_transaction_rule(self, rule_id):
+        return False
 
     def source_name(self):
         return "fake"

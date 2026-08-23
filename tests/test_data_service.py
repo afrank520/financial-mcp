@@ -98,6 +98,12 @@ class FakeAdapter(MonarchAdapter):
     def get_transaction_rules(self):
         return []
 
+    def create_transaction_rule(self, contains, rename_to):
+        return (False, None)
+
+    def delete_transaction_rule(self, rule_id):
+        return False
+
     def source_name(self):
         return "fake"
 
@@ -203,6 +209,10 @@ class _StubAdapter(MonarchAdapter):
         return "m_" + str(transaction_id)
     def get_transaction_rules(self):
         return []
+    def create_transaction_rule(self, contains, rename_to):
+        return (False, None)
+    def delete_transaction_rule(self, rule_id):
+        return False
 
 
 def test_balance_history_is_served_and_cached(tmp_path):
