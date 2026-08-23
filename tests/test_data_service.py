@@ -437,3 +437,39 @@ def test_transaction_rules_passthrough(tmp_path):
 
     assert svc.transaction_rules() == [{"id": "r1", "operator": "contains", "value": "amzn",
                                          "set_merchant": "Amazon", "set_category": None}]
+
+
+def _rule_svc(tmp_path):
+    # Build a DataService over a local fake adapter whose rules list is mutable.
+    # Follow the existing DataService construction pattern in this file (adapter + cache).
+    class _RuleAdapter(FakeAdapter):  # FakeAdapter already defined in this module
+        def __init__(self):
+            super().__init__()
+            self._rules = []
+        def get_transaction_rules(self):
+            return list(self._rules)
+        def create_transaction_rule(self, contains, rename_to):
+            rid = f"r{len(self._rules) + 1}"
+            self._rules.append({"id": rid, "operator": "contains", "value": contains,
+                                "set_merchant": rename_to, "set_category": None})
+            return (True, rid)
+        def delete_transaction_rule(self, rule_id):
+            n = len(self._rules)
+            self._rules = [r for r in self._rules if r["id"] != rule_id]
+            return len(self._rules) < n
+    clock = FakeClock()
+    adapter = _RuleAdapter()
+    svc, _ = _svc(tmp_path, clock, adapter)
+    return svc
+
+
+def test_create_merchant_rule_passthrough(tmp_path):
+    svc = _rule_svc(tmp_path)
+    assert svc.create_merchant_rule("AMZN", "Amazon") == (True, "r1")
+
+
+def test_delete_transaction_rule_passthrough(tmp_path):
+    svc = _rule_svc(tmp_path)
+    svc.create_merchant_rule("AMZN", "Amazon")
+    assert svc.delete_transaction_rule("r1") is True
+    assert svc.delete_transaction_rule("nope") is False
