@@ -117,3 +117,9 @@ class CsvAdapter(MonarchAdapter):
 
     def delete_category(self, category_id: str) -> bool:
         raise RuntimeError("writes are not available in CSV mode")
+
+    def rename_transaction_merchant(self, transaction_id: str, merchant_name: str) -> str | None:
+        raise RuntimeError("writes are not available in CSV mode")
+
+    def get_transaction_rules(self) -> list[dict]:
+        return []

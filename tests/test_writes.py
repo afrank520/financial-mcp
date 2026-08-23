@@ -132,3 +132,63 @@ def test_compute_delete_token_stable_and_count_sensitive():
     assert a != compute_delete_token("c1", 1)      # changes when count changes
     assert a != compute_delete_token("c2", 0)      # changes when id changes
     assert len(a) == 16
+
+
+def test_compute_merchant_token_stable_and_order_independent():
+    from financial_mcp.writes import compute_merchant_token
+    a = compute_merchant_token(["t2", "t1"], "Amazon")
+    b = compute_merchant_token(["t1", "t2"], "Amazon")
+    assert a == b and len(a) == 16
+    assert compute_merchant_token(["t1", "t2"], "Target") != a
+
+
+def _merchant_txn(**kw):
+    base = dict(id="t", date=datetime.date(2026, 8, 1), merchant="M", category="C",
+                account="A", original_statement="", notes="", amount=Decimal("-1"),
+                tags=[], owner="", merchant_id="", merchant_logo="")
+    base.update(kw)
+    return Transaction(**base)
+
+
+def test_build_merchant_inventory_groups_and_flags():
+    from financial_mcp.writes import build_merchant_inventory
+    txns = [
+        _merchant_txn(id="t1", merchant="Amazon", merchant_id="m1", merchant_logo="u"),
+        _merchant_txn(id="t2", merchant="Amazon", merchant_id="m1", merchant_logo="u"),
+        _merchant_txn(id="t3", merchant="AMZN Mktp US*2X4", merchant_id="m2", merchant_logo=""),
+        _merchant_txn(id="t4", merchant="Costco", merchant_id="m3", merchant_logo="u",
+                      tags=["Retail Sync"]),
+    ]
+    inv = {r["id"]: r for r in build_merchant_inventory(txns)}
+    assert inv["m1"]["txn_count"] == 2 and inv["m1"]["logo"] is True
+    assert inv["m2"]["logo"] is False
+    assert inv["m3"]["retail_sync"] is True
+
+
+def test_suggest_consolidations_matches_uncurated_to_curated():
+    from financial_mcp.writes import build_merchant_inventory, suggest_consolidations
+    txns = [
+        _merchant_txn(id="t1", merchant="Amazon", merchant_id="m1", merchant_logo="u"),
+        _merchant_txn(id="t3", merchant="AMZN Mktp US*2X4", merchant_id="m2", merchant_logo=""),
+        _merchant_txn(id="t5", merchant="Amazon.com*RT5", merchant_id="m4", merchant_logo=""),
+    ]
+    inv = build_merchant_inventory(txns)
+    sugg = {s["merchant"]: s for s in suggest_consolidations(inv, rules=[])}
+    # Both uncurated Amazon variants should target the curated "Amazon".
+    assert sugg["Amazon.com*RT5"]["suggested_target"] == "Amazon"
+
+
+def test_suggest_consolidations_marks_already_ruled_and_excludes_retail_sync():
+    from financial_mcp.writes import build_merchant_inventory, suggest_consolidations
+    txns = [
+        _merchant_txn(id="t1", merchant="Amazon", merchant_id="m1", merchant_logo="u"),
+        _merchant_txn(id="t3", merchant="AMZN Mktp US*2X4", merchant_id="m2", merchant_logo=""),
+        _merchant_txn(id="t4", merchant="Junk Co", merchant_id="m5", merchant_logo="",
+                      tags=["Retail Sync"]),
+    ]
+    inv = build_merchant_inventory(txns)
+    rules = [{"id": "r1", "operator": "contains", "value": "amzn mktp",
+              "set_merchant": "Amazon", "set_category": None}]
+    sugg = {s["merchant"]: s for s in suggest_consolidations(inv, rules)}
+    assert sugg["AMZN Mktp US*2X4"]["already_ruled"] is True
+    assert "Junk Co" not in sugg  # retail-sync-managed → excluded from suggestions

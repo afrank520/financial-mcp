@@ -18,6 +18,8 @@ class Transaction(BaseModel):
     amount: Decimal
     tags: list[str]
     owner: str
+    merchant_id: str = ""
+    merchant_logo: str = ""
 
     @staticmethod
     def synth_id(

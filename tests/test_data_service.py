@@ -92,6 +92,12 @@ class FakeAdapter(MonarchAdapter):
     def delete_category(self, category_id):
         raise NotImplementedError("not exercised by these tests")
 
+    def rename_transaction_merchant(self, transaction_id, merchant_name):
+        return "m_" + str(transaction_id)
+
+    def get_transaction_rules(self):
+        return []
+
     def source_name(self):
         return "fake"
 
@@ -193,6 +199,10 @@ class _StubAdapter(MonarchAdapter):
         raise NotImplementedError("not exercised by these tests")
     def delete_category(self, category_id):
         raise NotImplementedError("not exercised by these tests")
+    def rename_transaction_merchant(self, transaction_id, merchant_name):
+        return "m_" + str(transaction_id)
+    def get_transaction_rules(self):
+        return []
 
 
 def test_balance_history_is_served_and_cached(tmp_path):
@@ -385,3 +395,35 @@ def test_delete_category_invalidates_categories_cache(tmp_path):
 def test_cachettls_holdings_is_one_hour():
     from financial_mcp.config import HOUR
     assert CacheTTLs().holdings == 1 * HOUR
+
+
+def test_rename_merchant_invalidates_transactions_cache(tmp_path):
+    class _RenameAdapter(FakeAdapter):
+        def rename_transaction_merchant(self, transaction_id, merchant_name):
+            return "m9"
+
+    clock = FakeClock()
+    adapter = _RenameAdapter()
+    svc, _ = _svc(tmp_path, clock, adapter)
+
+    svc.transactions()  # populate cache
+    assert adapter.calls == 1
+
+    assert svc.rename_merchant("t1", "Amazon") == "m9"
+
+    svc.transactions()  # cache must have been invalidated -> refetch, not stale-served
+    assert adapter.calls == 2
+
+
+def test_transaction_rules_passthrough(tmp_path):
+    class _RulesAdapter(FakeAdapter):
+        def get_transaction_rules(self):
+            return [{"id": "r1", "operator": "contains", "value": "amzn",
+                     "set_merchant": "Amazon", "set_category": None}]
+
+    clock = FakeClock()
+    adapter = _RulesAdapter()
+    svc, _ = _svc(tmp_path, clock, adapter)
+
+    assert svc.transaction_rules() == [{"id": "r1", "operator": "contains", "value": "amzn",
+                                         "set_merchant": "Amazon", "set_category": None}]

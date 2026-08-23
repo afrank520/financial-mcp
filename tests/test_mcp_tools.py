@@ -84,6 +84,12 @@ class FakeAdapter(MonarchAdapter):
     def delete_category(self, category_id):
         raise NotImplementedError("not exercised by these tests")
 
+    def rename_transaction_merchant(self, transaction_id, merchant_name):
+        return "m_" + str(transaction_id)
+
+    def get_transaction_rules(self):
+        return []
+
     def source_name(self):
         return "fake"
 
@@ -895,6 +901,37 @@ def _bulk_server(tmp_path, write_mode="safe", batch_cap=200):
     return svc, journal, server
 
 
+class RetailSyncMerchantAdapter(BulkRecatAdapter):
+    """The two plain BulkRecatAdapter Amazon transactions (tx1/tx2, untagged)
+    plus a third Amazon transaction (tx3) tagged 'Retail Sync' — for
+    exercising the retail-sync partition in rename_merchant_matching."""
+
+    def get_transactions(self):
+        tagged = Transaction(
+            id="tx3",
+            date=datetime.date(2026, 1, 4),
+            merchant="Amazon",
+            category="Uncategorized",
+            account="Checking",
+            original_statement="AMZN",
+            notes="",
+            amount=Decimal("-15.00"),
+            tags=["Retail Sync"],
+            owner="A",
+        )
+        return super().get_transactions() + [tagged]
+
+
+def _retail_sync_bulk_server(tmp_path, write_mode="safe", batch_cap=200):
+    from financial_mcp.cache.undo_journal import UndoJournal
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(RetailSyncMerchantAdapter(), cache)
+    journal = UndoJournal(str(tmp_path / "j.db"))
+    server = build_server(svc, write_mode=write_mode, batch_cap=batch_cap, journal=journal)
+    return svc, journal, server
+
+
 def test_bulk_off_mode_refuses(tmp_path):
     svc, journal, server = _bulk_server(tmp_path, write_mode="off")
     tool = _tool(server, "recategorize_matching")
@@ -1039,6 +1076,69 @@ def test_bulk_partial_failure_reports_honestly_and_only_succeeded_undoable(tmp_p
     assert journal.last_undoable_batch() == out["batch_id"]
     rows = journal.undoable_rows(out["batch_id"])
     assert [r["target_id"] for r in rows] == ["tx1"]
+
+
+# ---------------------------------------------------------------------------
+# rename_merchant_matching
+# ---------------------------------------------------------------------------
+
+
+def test_rename_merchant_matching_off_mode_refuses(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="off")
+    tool = _tool(server, "rename_merchant_matching")
+
+    out = tool(to_merchant="Amazon Prime", merchant="Amazon")
+
+    assert "disabled" in out["error"]
+
+
+def test_rename_merchant_matching_dry_run_then_confirm(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "rename_merchant_matching")
+
+    pv = tool(to_merchant="Amazon Prime", merchant="Amazon")
+    assert pv["dry_run"] is True
+    assert pv["would_change"] == 2
+    assert pv["mode"] == "safe"
+
+    out = tool(to_merchant="Amazon Prime", merchant="Amazon", confirm_token=pv["confirm_token"])
+    assert out["changed"] == pv["would_change"]
+    assert out["to"] == "Amazon Prime"
+    assert "batch_id" in out
+    assert journal.last_undoable_batch() == out["batch_id"]
+
+
+def test_rename_merchant_matching_excludes_retail_sync_by_default(tmp_path):
+    svc, journal, server = _retail_sync_bulk_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "rename_merchant_matching")
+
+    pv = tool(to_merchant="Amazon Prime", merchant="Amazon")
+    assert pv["would_change"] == 2
+    assert pv["skipped_retail_sync"] == 1
+
+    pv2 = tool(to_merchant="Amazon Prime", merchant="Amazon", include_retail_sync=True)
+    assert pv2["would_change"] > pv["would_change"]
+    assert pv2["skipped_retail_sync"] == 0
+
+
+def test_rename_merchant_matching_blank_target_refuses(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "rename_merchant_matching")
+
+    out = tool(to_merchant="  ", merchant="Amazon")
+
+    assert "error" in out
+    assert "to_merchant" in out["error"]
+
+
+def test_rename_merchant_matching_over_cap_refuses(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="safe", batch_cap=1)
+    tool = _tool(server, "rename_merchant_matching")
+
+    out = tool(to_merchant="Amazon Prime", merchant="Amazon")
+
+    assert "error" in out
+    assert "over the batch cap" in out["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -1269,6 +1369,12 @@ class CategoryCrudAdapter(MonarchAdapter):
         self.deleted = getattr(self, "deleted", [])
         self.deleted.append(category_id)
         return True
+
+    def rename_transaction_merchant(self, transaction_id, merchant_name):
+        return "m_" + str(transaction_id)
+
+    def get_transaction_rules(self):
+        return []
 
     def source_name(self):
         return "fake"
@@ -1582,3 +1688,126 @@ def test_undo_last_multi_level_dispatch_across_three_op_types(tmp_path):
     # Nothing left to undo.
     fourth = undo()
     assert fourth == {"reversed": 0, "message": "nothing to undo"}
+
+
+def test_undo_last_reverses_rename_merchant(tmp_path):
+    svc, journal, server = _bulk_server(tmp_path, write_mode="full")
+    rename = _tool(server, "rename_merchant_matching")
+    undo = _tool(server, "undo_last")
+
+    out = rename(to_merchant="Amazon Prime", merchant="Amazon")
+    assert out["changed"] == 2
+    batch_id = out["batch_id"]
+    assert journal.last_undoable_batch() == batch_id
+
+    result = undo()
+
+    assert result["reversed"] >= 1
+    assert result["batch_id"] == batch_id
+    assert journal.last_undoable_batch() is None
+
+
+# ---------------------------------------------------------------------------
+# merchant_cleanup_suggestions
+# ---------------------------------------------------------------------------
+
+
+class MerchantCleanupAdapter(FakeAdapter):
+    """A mix of transactions for merchant_cleanup_suggestions:
+    - a curated 'Amazon' (has a logo + merchant_id) with two transactions,
+    - an uncurated 'AMZN Mktp US*2X4' variant (no logo) that normalizes
+      toward the 'Amazon' stem,
+    - a Retail Sync-tagged 'Target' transaction (no logo) that should be
+      reported separately, not suggested for rename.
+    """
+
+    def get_transactions(self):
+        return [
+            Transaction(
+                id="tx1",
+                date=datetime.date(2026, 1, 2),
+                merchant="Amazon",
+                category="Shopping",
+                account="Checking",
+                original_statement="AMAZON.COM",
+                notes="",
+                amount=Decimal("-10.00"),
+                tags=[],
+                owner="A",
+                merchant_id="m_amazon",
+                merchant_logo="https://logo.example/amazon.png",
+            ),
+            Transaction(
+                id="tx2",
+                date=datetime.date(2026, 1, 3),
+                merchant="AMZN Mktp US*2X4",
+                category="Shopping",
+                account="Checking",
+                original_statement="AMZN MKTP US*2X4",
+                notes="",
+                amount=Decimal("-20.00"),
+                tags=[],
+                owner="A",
+                merchant_id="",
+                merchant_logo="",
+            ),
+            Transaction(
+                id="tx3",
+                date=datetime.date(2026, 1, 4),
+                merchant="Target",
+                category="Shopping",
+                account="Checking",
+                original_statement="TARGET",
+                notes="",
+                amount=Decimal("-30.00"),
+                tags=["Retail Sync"],
+                owner="A",
+                merchant_id="",
+                merchant_logo="",
+            ),
+        ]
+
+
+def _merchant_cleanup_server(tmp_path):
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(MerchantCleanupAdapter(), cache)
+    server = build_server(svc)
+    return svc, server
+
+
+def test_merchant_cleanup_suggestions_surfaces_uncurated(tmp_path):
+    svc, server = _merchant_cleanup_server(tmp_path)
+    tool = _tool(server, "merchant_cleanup_suggestions")
+
+    out = tool()
+
+    assert out["uncurated_count"] >= 1
+    names = [s["merchant"] for s in out["suggestions"]]
+    assert "AMZN Mktp US*2X4" in names
+    assert "curated" not in out
+
+
+def test_merchant_cleanup_suggestions_flags_retail_sync(tmp_path):
+    svc, server = _merchant_cleanup_server(tmp_path)
+    tool = _tool(server, "merchant_cleanup_suggestions")
+
+    out = tool()
+
+    assert out["retail_sync_managed"]
+    assert "Target" in out["retail_sync_managed"]
+    # Retail Sync-managed merchants are not offered as rename suggestions.
+    names = [s["merchant"] for s in out["suggestions"]]
+    assert "Target" not in names
+
+
+def test_merchant_cleanup_suggestions_include_curated(tmp_path):
+    svc, server = _merchant_cleanup_server(tmp_path)
+    tool = _tool(server, "merchant_cleanup_suggestions")
+
+    out_default = tool()
+    assert "curated" not in out_default
+
+    out = tool(include_curated=True)
+    assert "curated" in out
+    curated_names = [r["name"] for r in out["curated"]]
+    assert "Amazon" in curated_names

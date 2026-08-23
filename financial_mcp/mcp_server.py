@@ -178,6 +178,35 @@ def build_server(
         )
 
     @server.tool()
+    def merchant_cleanup_suggestions(limit: int = 50, include_curated: bool = False) -> dict:
+        """Advisory (read-only): find merchants worth cleaning up.
+
+        Builds a merchant inventory from your transactions, flags the ones with
+        no logo (uncurated / auto-created by import), and — for each — suggests a
+        likely canonical merchant to consolidate into, noting whether one of your
+        existing transaction rules already covers it. Merchants managed by the
+        Retail Sync extension are listed separately and NOT suggested for rename
+        (leave those to the extension). Nothing is mutated.
+        """
+        def _run():
+            clamped_limit = _clamp_limit(limit)
+            inv = writes.build_merchant_inventory(svc.transactions())
+            rules = svc.transaction_rules()
+            suggestions = writes.suggest_consolidations(inv, rules)
+            retail = [r["name"] for r in inv if r["retail_sync"]]
+            result = {
+                "uncurated_count": sum(1 for r in inv if not r["logo"] and not r["retail_sync"]),
+                "suggestions": suggestions[:clamped_limit],
+                "retail_sync_managed": retail,
+                "note": "read-only advisory; use rename_merchant_matching to act on a suggestion",
+            }
+            if include_curated:
+                result["curated"] = [r for r in inv if r["logo"]][:clamped_limit]
+            return result
+
+        return _guard(_run)
+
+    @server.tool()
     def monthly_spending(year: int) -> dict:
         """Monthly total spend (negative amounts) for the given year.
 
@@ -567,6 +596,103 @@ def build_server(
         return _guard(_run)
 
     @server.tool()
+    def rename_merchant_matching(
+        to_merchant: str,
+        merchant: str | None = None,
+        category: str | None = None,
+        min_amount: float | None = None,
+        max_amount: float | None = None,
+        start: str | None = None,
+        end: str | None = None,
+        include_retail_sync: bool = False,
+        confirm_token: str | None = None,
+    ) -> dict:
+        """Bulk-rename the merchant on every transaction matching a filter.
+
+        Filter mirrors search_transactions (merchant/category substrings — the
+        `merchant` filter IS the "contains" match — plus amount range and an
+        optional YYYY-MM-DD date window). In 'safe' mode this is two-phase:
+        call without confirm_token to preview (nothing mutates) and get a
+        confirm_token, then call again with it to execute. In 'full' mode it
+        executes directly. Transactions tagged "Retail Sync" are excluded unless
+        include_retail_sync=True (renaming them requires updating the Retail Sync
+        extension's Retailers setting). Over the batch cap it refuses (no
+        truncation). Reversible via undo_last.
+        """
+        disabled = _writes_enabled()
+        if disabled:
+            return {"error": disabled}
+        if not to_merchant or not to_merchant.strip():
+            return {"error": "to_merchant must be a non-empty name"}
+
+        s = e = None
+        if start is not None:
+            try:
+                s = datetime.date.fromisoformat(start)
+            except ValueError:
+                return {"error": "start must be YYYY-MM-DD"}
+        if end is not None:
+            try:
+                e = datetime.date.fromisoformat(end)
+            except ValueError:
+                return {"error": "end must be YYYY-MM-DD"}
+        if s and e and s > e:
+            return {"error": "start must not be after end"}
+
+        def _run():
+            matched = writes.match_transactions(
+                svc.transactions(), merchant=merchant, category=category,
+                min_amount=None if min_amount is None else Decimal(str(min_amount)),
+                max_amount=None if max_amount is None else Decimal(str(max_amount)),
+                start=s, end=e,
+            )
+            skipped = 0
+            if not include_retail_sync:
+                kept = [t for t in matched if writes.RETAIL_SYNC_TAG not in (t.tags or [])]
+                skipped = len(matched) - len(kept)
+                matched = kept
+            if not matched:
+                return {"would_change": 0, "skipped_retail_sync": skipped,
+                        "message": "no transactions matched"}
+            if len(matched) > batch_cap:
+                return {"error": f"{len(matched)} transactions match, over the batch cap "
+                                 f"of {batch_cap}. Narrow the filter or raise batch_cap."}
+            token = writes.compute_merchant_token([t.id for t in matched], to_merchant)
+
+            def _preview():
+                sample = [{"transaction_id": t.id, "date": t.date.isoformat(),
+                           "current_merchant": t.merchant, "amount": str(t.amount),
+                           "to_merchant": to_merchant} for t in matched[:20]]
+                return {"dry_run": True, "would_change": len(matched),
+                        "skipped_retail_sync": skipped, "to_merchant": to_merchant,
+                        "sample": sample, "confirm_token": token, "mode": write_mode}
+
+            if write_mode == "safe":
+                if confirm_token is None or confirm_token != token:
+                    return _preview()
+            batch_id = uuid.uuid4().hex
+            changed = 0
+            failures = []
+            resulting_merchant_id = None
+            for t in matched:
+                journal.record(batch_id, "rename_merchant", t.id, t.merchant,
+                               to_merchant, t.merchant, to_merchant)
+                rid = svc.rename_merchant(t.id, to_merchant)
+                if rid:
+                    journal.mark_succeeded(batch_id, t.id)
+                    changed += 1
+                    resulting_merchant_id = resulting_merchant_id or rid
+                else:
+                    failures.append({"transaction_id": t.id,
+                                     "reason": "Monarch did not apply the merchant rename"})
+            return {"changed": changed, "failed": len(failures), "failures": failures,
+                    "skipped_retail_sync": skipped, "batch_id": batch_id,
+                    "to": to_merchant, "resulting_merchant_id": resulting_merchant_id,
+                    "undo_hint": "call undo_last to reverse"}
+
+        return _guard(_run)
+
+    @server.tool()
     def create_category(name: str, group: str) -> dict:
         """Create a NEW category inside an existing category group (by name).
 
@@ -679,10 +805,11 @@ def build_server(
 
     @server.tool()
     def undo_last() -> dict:
-        """Reverse the most recent recategorization, category-rename, or category-delete batch
-        (multi-level: call again to step back to the previous one). Undo is a
-        compensating write — it re-sets each item to the value it had when the
-        write ran; deletions are reversed by recreating the category. Does not detect edits you made afterward.
+        """Reverse the most recent recategorization, category-rename, category-delete,
+        or merchant-rename batch (multi-level: call again to step back to the
+        previous one). Undo is a compensating write — it re-sets each item to
+        the value it had when the write ran; deletions are reversed by recreating
+        the category. Does not detect edits you made afterward.
         Refuses in write_mode 'off'.
         """
         disabled = _writes_enabled()
@@ -703,6 +830,8 @@ def build_server(
                     ok = svc.rename_category(r["target_id"], r["old_value"])
                 elif r["op_type"] == "delete_category":
                     ok = bool(svc.create_category(r["label_old"], r["old_value"], r["new_value"]))
+                elif r["op_type"] == "rename_merchant":
+                    ok = bool(svc.rename_merchant(r["target_id"], r["old_value"]))
                 else:
                     ok = False
                 if ok:
@@ -715,6 +844,9 @@ def build_server(
                     elif r["op_type"] == "delete_category":
                         failures.append({"category_id": r["target_id"],
                                          "reason": "Monarch did not apply the recreate"})
+                    elif r["op_type"] == "rename_merchant":
+                        failures.append({"transaction_id": r["target_id"],
+                                         "reason": "Monarch did not apply the merchant rename"})
                     else:
                         failures.append({"category_id": r["target_id"],
                                          "reason": "Monarch did not apply the rename"})
@@ -733,9 +865,9 @@ def build_server(
 
     @server.tool()
     def undo_history() -> dict:
-        """Show the reversible recategorization, category-rename, and category-delete batches, newest
-        first: each with a summary (e.g. 'Uncategorized→Shopping ×12'), count, when,
-        and whether it has already been undone.
+        """Show the reversible recategorization, category-rename, category-delete, and
+        merchant-rename batches, newest first: each with a summary (e.g.
+        'Uncategorized→Shopping ×12'), count, when, and whether it has already been undone.
         """
         return _guard(lambda: {"history": journal.history()})
 

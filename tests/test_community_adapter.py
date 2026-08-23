@@ -601,3 +601,26 @@ def test_holdings_and_recurring_query_constants_present():
     assert "frequency" in queries.GET_RECURRING
     # $filters is USED in the body (not the GET_BUDGETS unused-variable case)
     assert "filters: $filters" in queries.GET_RECURRING
+
+
+def test_to_transaction_populates_merchant_id_and_logo():
+    from financial_mcp.monarch.community_adapter import _to_transaction
+    d = {
+        "id": "t1", "date": "2026-08-01", "amount": -12.5,
+        "merchant": {"id": "m1", "name": "Amazon", "logoUrl": "http://x/y.png"},
+        "category": {"name": "Shopping"}, "account": {"displayName": "Card"},
+        "plaidName": "AMZN Mktp US*2X4", "notes": "", "tags": [],
+    }
+    t = _to_transaction(d)
+    assert t.merchant_id == "m1"
+    assert t.merchant_logo == "http://x/y.png"
+
+
+def test_to_transaction_merchant_id_and_logo_default_empty():
+    from financial_mcp.monarch.community_adapter import _to_transaction
+    d = {"id": "t2", "date": "2026-08-01", "amount": -1,
+         "merchant": {"name": "Corner Store"}, "category": {"name": "Food"},
+         "account": {"displayName": "Card"}, "plaidName": "", "notes": "", "tags": []}
+    t = _to_transaction(d)
+    assert t.merchant_id == ""
+    assert t.merchant_logo == ""
