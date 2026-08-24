@@ -40,10 +40,30 @@ def test_create_rule_returns_true_none_on_ambiguous_diff():
     assert ad.create_transaction_rule("AMZN", "Amazon") == (True, None)
 
 
-def test_delete_rule_true_and_false():
-    assert _seq_adapter([{"deleteTransactionRule": {"deleted": True, "errors": []}}]).delete_transaction_rule("r2") is True
-    assert _seq_adapter([{"deleteTransactionRule": {"deleted": False, "errors": []}}]).delete_transaction_rule("r2") is False
-    assert _seq_adapter([{"deleteTransactionRule": {"deleted": True, "errors": [{"message": "e"}]}}]).delete_transaction_rule("r2") is False
+def _rule(rid):
+    return {"id": rid, "merchantCriteria": [], "setMerchantAction": None, "setCategoryAction": None}
+
+
+def test_delete_rule_true_when_gone_despite_deleted_false():
+    # Monarch's deleteTransactionRule returns deleted:false even on a SUCCESSFUL
+    # delete (false-negative on the V2 mutation), so we verify by absence: the
+    # rule is gone from the re-read → True. Regression test for the live-caught
+    # undo bug — trusting `deleted` reported every real delete as a failure.
+    ad = _seq_adapter([
+        {"deleteTransactionRule": {"deleted": False, "errors": None}},  # Monarch's false-negative
+        {"transactionRules": [_rule("r1")]},                            # re-read: r2 is gone
+    ])
+    assert ad.delete_transaction_rule("r2") is True
+
+
+def test_delete_rule_false_when_still_present():
+    # Delete truly didn't take — the rule is still in the re-read → honest
+    # failure (undo_last keeps the row retryable).
+    ad = _seq_adapter([
+        {"deleteTransactionRule": {"deleted": False, "errors": None}},
+        {"transactionRules": [_rule("r1"), _rule("r2")]},               # re-read: r2 still there
+    ])
+    assert ad.delete_transaction_rule("r2") is False
 
 
 def test_csv_create_and_delete_rule_raise():

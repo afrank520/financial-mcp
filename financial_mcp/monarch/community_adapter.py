@@ -437,7 +437,11 @@ class CommunityAdapter(MonarchAdapter):
         return (True, new[0]) if len(new) == 1 else (True, None)
 
     def delete_transaction_rule(self, rule_id: str) -> bool:
-        data = self._run(self._transport(
+        # Monarch's deleteTransactionRule (a V2 mutation) returns deleted:false
+        # even when the delete actually succeeds — a false-negative confirmed
+        # live. So we ignore that boolean and verify by absence, mirroring how
+        # create_transaction_rule re-reads the rules list. Success iff the rule
+        # id no longer appears; a still-present rule → False (undo stays retryable).
+        self._run(self._transport(
             "Common_DeleteTransactionRule", DELETE_TRANSACTION_RULE, {"id": rule_id}))
-        res = data.get("deleteTransactionRule") or {}
-        return bool(res.get("deleted")) and not (res.get("errors") or [])
+        return rule_id not in {r["id"] for r in self.get_transaction_rules()}
