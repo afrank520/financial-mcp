@@ -350,7 +350,14 @@ git commit -m "feat: create_category_rule is a reversible op with its own histor
 
 - [ ] **Step 1: Write the failing tests**
 
-First, extend the `RuleAdapter` fake in `tests/test_mcp_tools.py` (the class near line 1833) so category rules round-trip. Add this method to `RuleAdapter` (after `create_transaction_rule`):
+First — REQUIRED so the full suite can instantiate its test doubles — add a default `create_category_rule` to the BASE `FakeAdapter` in `tests/test_mcp_tools.py` (directly after its `create_transaction_rule` stub, ~line 94), mirroring that stub. Task 2 added `create_category_rule` as an ABC abstractmethod, which makes EVERY `FakeAdapter` subclass abstract-incomplete without this default:
+
+```python
+    def create_category_rule(self, contains, category_id):
+        return (False, None)
+```
+
+Then extend the `RuleAdapter` fake (the class near line 1833) so category rules round-trip. Add this method to `RuleAdapter` (after `create_transaction_rule`) — it OVERRIDES the base default:
 
 ```python
     def create_category_rule(self, contains, category_id):
