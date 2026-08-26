@@ -139,6 +139,9 @@ class DataService:
     def create_merchant_rule(self, contains: str, rename_to: str) -> tuple[bool, str | None]:
         return self._adapter.create_transaction_rule(contains, rename_to)
 
+    def create_category_rule(self, contains: str, category_id: str) -> tuple[bool, str | None]:
+        return self._adapter.create_category_rule(contains, category_id)
+
     def delete_transaction_rule(self, rule_id: str) -> bool:
         return self._adapter.delete_transaction_rule(rule_id)
 

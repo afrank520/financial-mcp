@@ -65,6 +65,9 @@ class MonarchAdapter(abc.ABC):
     def create_transaction_rule(self, contains: str, rename_to: str) -> tuple[bool, str | None]: ...
 
     @abc.abstractmethod
+    def create_category_rule(self, contains: str, category_id: str) -> tuple[bool, str | None]: ...
+
+    @abc.abstractmethod
     def delete_transaction_rule(self, rule_id: str) -> bool: ...
 
     @abc.abstractmethod

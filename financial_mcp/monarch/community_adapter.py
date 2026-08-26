@@ -34,7 +34,7 @@ from financial_mcp.monarch.queries import (
     UPDATE_TRANSACTION_CATEGORY,
     UPDATE_TRANSACTION_MERCHANT,
 )
-from financial_mcp.writes import _rename_rule_input
+from financial_mcp.writes import _category_rule_input, _rename_rule_input
 
 GRAPHQL_URL = "https://api.monarch.com/graphql"
 # A real-browser User-Agent keeps us clear of any future Cloudflare UA rule.
@@ -424,17 +424,27 @@ class CommunityAdapter(MonarchAdapter):
             })
         return out
 
-    def create_transaction_rule(self, contains: str, rename_to: str) -> tuple[bool, str | None]:
+    def _create_rule_from_input(self, rule_input: dict) -> tuple[bool, str | None]:
+        # Monarch's createTransactionRuleV2 returns NO id, so we learn it by
+        # snapshotting the rule-id set before and after and diffing. Success with
+        # exactly one new id -> (True, id); created but 0 or >1 new ids ->
+        # (True, None) (id un-capturable, caller must not journal an undo).
         before = {r["id"] for r in self.get_transaction_rules()}
         payload = self._run(self._transport(
             "Common_CreateTransactionRuleMutationV2", CREATE_TRANSACTION_RULE,
-            {"input": _rename_rule_input(contains, rename_to)}))
+            {"input": rule_input}))
         errors = ((payload.get("createTransactionRuleV2") or {}).get("errors")) or []
         if errors:
             return (False, None)
         after = self.get_transaction_rules()
         new = [r["id"] for r in after if r["id"] not in before]
         return (True, new[0]) if len(new) == 1 else (True, None)
+
+    def create_transaction_rule(self, contains: str, rename_to: str) -> tuple[bool, str | None]:
+        return self._create_rule_from_input(_rename_rule_input(contains, rename_to))
+
+    def create_category_rule(self, contains: str, category_id: str) -> tuple[bool, str | None]:
+        return self._create_rule_from_input(_category_rule_input(contains, category_id))
 
     def delete_transaction_rule(self, rule_id: str) -> bool:
         # Monarch's deleteTransactionRule (a V2 mutation) returns deleted:false

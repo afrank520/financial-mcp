@@ -75,3 +75,38 @@ def test_csv_create_and_delete_rule_raise():
         ad.create_transaction_rule("AMZN", "Amazon")
     with pytest.raises(RuntimeError):
         ad.delete_transaction_rule("r2")
+
+
+def test_create_category_rule_returns_true_and_new_id():
+    ad = _seq_adapter([
+        {"transactionRules": [_rule("r1")]},              # before
+        {"createTransactionRuleV2": {"errors": []}},      # create
+        {"transactionRules": [_rule("r1"), _rule("r2")]}, # after: r2 is new
+    ])
+    assert ad.create_category_rule("SHELL", "cat123") == (True, "r2")
+
+
+def test_create_category_rule_returns_false_on_monarch_error():
+    ad = _seq_adapter([
+        {"transactionRules": []},
+        {"createTransactionRuleV2": {"errors": [{"message": "bad", "code": "X"}]}},
+    ])
+    assert ad.create_category_rule("SHELL", "cat123") == (False, None)
+
+
+def test_create_category_rule_returns_true_none_on_ambiguous_diff():
+    ad = _seq_adapter([
+        {"transactionRules": [_rule("r1")]},
+        {"createTransactionRuleV2": {"errors": []}},
+        {"transactionRules": [_rule("r1")]},   # nothing new appeared
+    ])
+    assert ad.create_category_rule("SHELL", "cat123") == (True, None)
+
+
+def test_csv_create_category_rule_raises():
+    from financial_mcp.monarch.csv_adapter import CsvAdapter
+    import pytest
+
+    ad = CsvAdapter("unused_txns.csv", "unused_balances.csv")
+    with pytest.raises(RuntimeError):
+        ad.create_category_rule("SHELL", "cat123")
