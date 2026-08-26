@@ -177,3 +177,20 @@ def test_history_renders_rule_summary(tmp_path):
     j.mark_succeeded("b1", "r2")
     h = j.history()
     assert "AMZN" in h[0]["summary"] and "Amazon" in h[0]["summary"]
+
+
+def test_create_category_rule_is_reversible_and_summarized(tmp_path):
+    from financial_mcp.cache.undo_journal import UndoJournal, REVERSIBLE_OPS
+
+    assert "create_category_rule" in REVERSIBLE_OPS
+
+    j = UndoJournal(str(tmp_path / "j.db"))
+    # Mirror the tool's record call: target=rule_id, old/label_old=contains,
+    # new/label_new=category name.
+    j.record("b1", "create_category_rule", "rule9", "SHELL", "Gas", "SHELL", "Gas")
+    j.mark_succeeded("b1", "rule9")
+
+    assert j.last_undoable_batch() == "b1"
+    hist = j.history()
+    assert hist[0]["summary"] == "Rule: contains 'SHELL' → category 'Gas' ×1"
+    assert hist[0]["undone"] is False
