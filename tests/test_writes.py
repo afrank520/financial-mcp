@@ -215,3 +215,26 @@ def test_compute_rule_token_stable_and_sensitive():
     assert a == compute_rule_token("AMZN", "Amazon") and len(a) == 16
     assert compute_rule_token("AMZN", "Amazon") != compute_rule_token("AMZN", "Amazon Inc")
     assert compute_rule_token("AMZN", "Amazon") != compute_rule_token("AMZ", "Amazon")
+
+
+def test_category_rule_input_shape():
+    inp = writes._category_rule_input("SHELL OIL", "169483061874802379")
+    # Match criterion mirrors the rename rule.
+    assert inp["merchantNameCriteria"] == [{"operator": "contains", "value": "SHELL OIL"}]
+    # The category action carries a bare id string; merchant action is null.
+    assert inp["setCategoryAction"] == "169483061874802379"
+    assert inp["setMerchantAction"] is None
+    # Future-only is hardcoded.
+    assert inp["applyToExistingTransactions"] is False
+    # categoryIds (a match criterion, not the action) stays null.
+    assert inp["categoryIds"] is None
+
+
+def test_category_rule_token_is_deterministic_and_distinct():
+    a = writes.compute_category_rule_token("SHELL OIL", "cat1")
+    b = writes.compute_category_rule_token("SHELL OIL", "cat1")
+    assert a == b and len(a) == 16
+    # Different category id -> different token.
+    assert a != writes.compute_category_rule_token("SHELL OIL", "cat2")
+    # Distinct namespace from the rename-rule token (no cross-collision).
+    assert a != writes.compute_rule_token("SHELL OIL", "cat1")

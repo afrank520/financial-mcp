@@ -93,6 +93,9 @@ class FakeAdapter(MonarchAdapter):
     def create_transaction_rule(self, contains, rename_to):
         return (False, None)
 
+    def create_category_rule(self, contains, category_id):
+        return (False, None)
+
     def delete_transaction_rule(self, rule_id):
         return False
 
@@ -1385,6 +1388,9 @@ class CategoryCrudAdapter(MonarchAdapter):
     def create_transaction_rule(self, contains, rename_to):
         return (False, None)
 
+    def create_category_rule(self, contains, category_id):
+        return (False, None)
+
     def delete_transaction_rule(self, rule_id):
         return False
 
@@ -1849,6 +1855,15 @@ class RuleAdapter(BulkRecatAdapter):
                             "set_merchant": rename_to, "set_category": None})
         return (True, rule_id)
 
+    def create_category_rule(self, contains, category_id):
+        rule_id = f"rule{self._next_id}"
+        self._next_id += 1
+        # Store category_id in set_category; the tool's dup-guard compares against
+        # the resolved category NAME, so dup-guard tests pre-seed a name explicitly.
+        self.rules.append({"id": rule_id, "operator": "contains", "value": contains,
+                            "set_merchant": None, "set_category": category_id})
+        return (True, rule_id)
+
     def delete_transaction_rule(self, rule_id):
         before = len(self.rules)
         self.rules = [r for r in self.rules if r["id"] != rule_id]
@@ -1861,12 +1876,18 @@ class DecliningRuleAdapter(RuleAdapter):
     def create_transaction_rule(self, contains, rename_to):
         return (False, None)
 
+    def create_category_rule(self, contains, category_id):
+        return (False, None)
+
 
 class UncapturableIdRuleAdapter(RuleAdapter):
     """create_transaction_rule succeeds but Monarch's response didn't carry
     a usable rule id (the honest-degradation path)."""
 
     def create_transaction_rule(self, contains, rename_to):
+        return (True, None)
+
+    def create_category_rule(self, contains, category_id):
         return (True, None)
 
 
@@ -1984,5 +2005,95 @@ def test_undo_last_reverses_create_rule(tmp_path):
 
     result = undo()
 
+    assert result["reversed"] >= 1
+    assert rule_id not in [r["id"] for r in svc._adapter.rules]
+
+
+def test_create_category_rule_off_mode_refuses(tmp_path):
+    svc, journal, server = _rule_server(tmp_path, write_mode="off")
+    out = _tool(server, "create_category_rule")("Amazon", "Shopping")
+    assert "error" in out
+    assert svc._adapter.rules == []
+
+
+def test_create_category_rule_blank_and_unknown_category_refuse(tmp_path):
+    svc, journal, server = _rule_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "create_category_rule")
+    assert "error" in tool("  ", "Shopping")
+    assert "error" in tool("Amazon", " ")
+    # Unknown category -> fail-closed refusal, nothing created.
+    out = tool("Amazon", "NoSuchCategory")
+    assert "error" in out
+    assert svc._adapter.rules == []
+
+
+def test_create_category_rule_dry_run_then_confirm(tmp_path):
+    svc, journal, server = _rule_server(tmp_path, write_mode="safe")
+    tool = _tool(server, "create_category_rule")
+
+    preview = tool("Amazon", "Shopping")
+    assert preview["dry_run"] is True
+    assert preview["rule"] == {"contains": "Amazon", "set_category": "Shopping",
+                               "apply_to_existing": False}
+    assert preview["existing_matches"] == 2   # two Amazon txns matched, NOT changed
+    assert "future" in preview["message"].lower()
+    assert "confirm_token" in preview
+    assert svc._adapter.rules == []            # nothing created on preview
+
+    out = tool("Amazon", "Shopping", confirm_token=preview["confirm_token"])
+    assert out["created"] is True
+    assert out["rule_id"]
+    assert len(svc._adapter.rules) == 1
+    assert journal.last_undoable_batch() is not None
+
+
+def test_create_category_rule_full_mode_executes_without_token(tmp_path):
+    svc, journal, server = _rule_server(tmp_path, write_mode="full")
+    out = _tool(server, "create_category_rule")("Amazon", "Shopping")
+    assert out["created"] is True
+    assert out["rule_id"]
+    assert len(svc._adapter.rules) == 1
+
+
+def test_create_category_rule_duplicate_guard_refuses(tmp_path):
+    adapter = RuleAdapter()
+    adapter.rules.append({"id": "rule0", "operator": "contains", "value": "Amazon",
+                          "set_merchant": None, "set_category": "Shopping"})
+    svc, journal, server = _rule_server(tmp_path, adapter=adapter, write_mode="safe")
+    out = _tool(server, "create_category_rule")("Amazon", "Shopping")
+    assert out["existing_rule_id"] == "rule0"
+    assert len(svc._adapter.rules) == 1
+
+
+def test_create_category_rule_declined_reports_created_false(tmp_path):
+    svc, journal, server = _rule_server(tmp_path, adapter=DecliningRuleAdapter(),
+                                        write_mode="full")
+    out = _tool(server, "create_category_rule")("Amazon", "Shopping")
+    assert out["created"] is False
+    assert "reason" in out
+    assert journal.last_undoable_batch() is None
+
+
+def test_create_category_rule_uncapturable_id_briefs_user(tmp_path):
+    svc, journal, server = _rule_server(tmp_path, adapter=UncapturableIdRuleAdapter(),
+                                        write_mode="full")
+    out = _tool(server, "create_category_rule")("Amazon", "Shopping")
+    assert out["created"] is True
+    assert out["rule_id"] is None
+    assert out["undo_available"] is False
+    assert out["note"]
+    assert journal.last_undoable_batch() is None
+
+
+def test_undo_last_reverses_create_category_rule(tmp_path):
+    svc, journal, server = _rule_server(tmp_path, write_mode="full")
+    create = _tool(server, "create_category_rule")
+    undo = _tool(server, "undo_last")
+
+    out = create("Amazon", "Shopping")
+    rule_id = out["rule_id"]
+    assert rule_id in [r["id"] for r in svc._adapter.rules]
+
+    result = undo()
     assert result["reversed"] >= 1
     assert rule_id not in [r["id"] for r in svc._adapter.rules]

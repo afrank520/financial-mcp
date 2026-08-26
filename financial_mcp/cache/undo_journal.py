@@ -6,7 +6,7 @@ import sqlite3
 import time
 from collections.abc import Callable
 
-REVERSIBLE_OPS = ("recategorize", "rename_category", "delete_category", "rename_merchant", "create_rule")
+REVERSIBLE_OPS = ("recategorize", "rename_category", "delete_category", "rename_merchant", "create_rule", "create_category_rule")
 
 
 class UndoJournal:
@@ -164,6 +164,8 @@ class UndoJournal:
                 summary = f"{old_n}→{new_n} (merchant) ×{n}"
             elif op_type == "create_rule":
                 summary = f"Rule: contains '{old_n}' → '{new_n}' ×{n}"
+            elif op_type == "create_category_rule":
+                summary = f"Rule: contains '{old_n}' → category '{new_n}' ×{n}"
             else:
                 summary = f"{old_n}→{new_n} ×{n}"
             out.append({

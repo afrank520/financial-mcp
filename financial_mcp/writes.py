@@ -197,3 +197,36 @@ def _rename_rule_input(contains: str, rename_to: str) -> dict:
 def compute_rule_token(contains: str, rename_to: str) -> str:
     key = contains + "->" + rename_to
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+
+def _category_rule_input(contains: str, category_id: str) -> dict:
+    """Build the CreateTransactionRuleInput for a FUTURE-ONLY auto-categorize rule.
+
+    The categorize twin of `_rename_rule_input`. Captured from the Monarch web
+    app 2026-08-25: identical to the rename input except the action fields are
+    swapped — `setMerchantAction` is null and `setCategoryAction` is the target
+    category's id as a bare string. `applyToExistingTransactions` is always
+    False; every other field is explicit-null to match the app.
+    """
+    return {
+        "accountIds": None,
+        "categoryIds": None,
+        "amountCriteria": None,
+        "merchantCriteria": None,
+        "originalStatementCriteria": None,
+        "merchantCriteriaUseOriginalStatement": False,
+        "merchantNameCriteria": [{"operator": "contains", "value": contains}],
+        "setMerchantAction": None,
+        "applyToExistingTransactions": False,
+        "addTagsAction": None,
+        "linkGoalAction": None,
+        "linkSavingsGoalAction": None,
+        "reviewStatusAction": None,
+        "setCategoryAction": category_id,
+        "splitTransactionsAction": None,
+    }
+
+
+def compute_category_rule_token(contains: str, category_id: str) -> str:
+    key = contains + "=>cat:" + category_id
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]

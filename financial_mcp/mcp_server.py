@@ -282,6 +282,87 @@ def build_server(
         return _guard(_run)
 
     @server.tool()
+    def create_category_rule(
+        contains: str, set_category: str, confirm_token: str | None = None
+    ) -> dict:
+        """Create a Monarch rule that auto-CATEGORIZES future transactions.
+
+        Whenever a newly-imported transaction's merchant name CONTAINS `contains`,
+        Monarch will set its category to `set_category` (an EXISTING category name).
+        Future-only: it does NOT recategorize transactions you already have (run
+        recategorize_matching first for those — the dry-run tells you how many
+        exist). In 'safe' mode this is two-phase: call without confirm_token to
+        preview (nothing is created) and get a confirm_token, then call again with
+        it to create. In 'full' mode it creates directly. Reversible via undo_last
+        (which deletes the rule).
+        """
+        disabled = _writes_enabled()
+        if disabled:
+            return {"error": disabled}
+        if not contains or not contains.strip():
+            return {"error": "contains must be a non-empty phrase"}
+        if not set_category or not set_category.strip():
+            return {"error": "set_category must be a non-empty category name"}
+
+        def _run():
+            cats = svc.categories()
+            try:
+                target = writes.resolve_category(set_category, cats)
+            except writes.WriteError as exc:
+                return {"error": str(exc)}
+
+            # Duplicate guard (best-effort; fails open — same as create_merchant_rule).
+            for rule in svc.transaction_rules():
+                if ((rule.get("value") or "").strip().lower() == contains.strip().lower()
+                        and (rule.get("set_category") or "") == target.name):
+                    return {"refused": "a rule for this already exists",
+                            "existing_rule_id": rule.get("id")}
+
+            existing = len(writes.match_transactions(svc.transactions(), merchant=contains))
+            token = writes.compute_category_rule_token(contains, target.id)
+
+            if write_mode == "safe" and (confirm_token is None or confirm_token != token):
+                return {
+                    "dry_run": True,
+                    "rule": {"contains": contains, "set_category": target.name,
+                             "apply_to_existing": False},
+                    "existing_matches": existing,
+                    "message": (
+                        f"This rule will categorize FUTURE transactions whose merchant "
+                        f"contains '{contains}' as '{target.name}'. I'm showing you the "
+                        f"{existing} existing transactions it matches so you know they "
+                        f"will NOT be changed — a new rule only applies to transactions "
+                        f"imported from now on. If you also want those {existing} "
+                        f"recategorized now, run recategorize_matching first. Confirm to "
+                        f"create the rule."),
+                    "confirm_token": token,
+                    "mode": write_mode,
+                    "note": "no rule created yet",
+                }
+
+            created, rule_id = svc.create_category_rule(contains, target.id)
+            if not created:
+                return {"created": False,
+                        "reason": "Monarch declined to create the rule"}
+            if rule_id is None:
+                return {"created": True, "rule_id": None, "undo_available": False,
+                        "contains": contains, "set_category": target.name,
+                        "applied_to_existing": False,
+                        "note": ("Rule created, but I couldn't capture its id to enable "
+                                 "one-click undo. If you change your mind, delete it in "
+                                 "Monarch → Settings → Rules.")}
+            batch_id = uuid.uuid4().hex
+            journal.record(batch_id, "create_category_rule", rule_id, contains,
+                           target.name, contains, target.name)
+            journal.mark_succeeded(batch_id, rule_id)
+            return {"created": True, "rule_id": rule_id, "contains": contains,
+                    "set_category": target.name, "applied_to_existing": False,
+                    "existing_matches": existing,
+                    "undo_hint": "call undo_last to delete this rule"}
+
+        return _guard(_run)
+
+    @server.tool()
     def monthly_spending(year: int) -> dict:
         """Monthly total spend (negative amounts) for the given year.
 
@@ -881,11 +962,11 @@ def build_server(
     @server.tool()
     def undo_last() -> dict:
         """Reverse the most recent recategorization, category-rename, category-delete,
-        merchant-rename, or created-rule batch (multi-level: call again to step back
-        to the previous one). Undo is a compensating write — it re-sets each item to
-        the value it had when the write ran; deletions are reversed by recreating
-        the category; created rules are reversed by deleting the rule. Does not
-        detect edits you made afterward.
+        merchant-rename, created auto-categorize rule, or created merchant-rename
+        rule batch (multi-level: call again to step back to the previous one). Undo
+        is a compensating write — it re-sets each item to the value it had when the
+        write ran; deletions are reversed by recreating the category; created rules
+        are reversed by deleting the rule. Does not detect edits you made afterward.
         Refuses in write_mode 'off'.
         """
         disabled = _writes_enabled()
@@ -910,6 +991,8 @@ def build_server(
                     ok = bool(svc.rename_merchant(r["target_id"], r["old_value"]))
                 elif r["op_type"] == "create_rule":
                     ok = svc.delete_transaction_rule(r["target_id"])
+                elif r["op_type"] == "create_category_rule":
+                    ok = svc.delete_transaction_rule(r["target_id"])
                 else:
                     ok = False
                 if ok:
@@ -926,6 +1009,9 @@ def build_server(
                         failures.append({"transaction_id": r["target_id"],
                                          "reason": "Monarch did not apply the merchant rename"})
                     elif r["op_type"] == "create_rule":
+                        failures.append({"rule_id": r["target_id"],
+                                         "reason": "Monarch did not delete the rule"})
+                    elif r["op_type"] == "create_category_rule":
                         failures.append({"rule_id": r["target_id"],
                                          "reason": "Monarch did not delete the rule"})
                     else:
@@ -947,9 +1033,9 @@ def build_server(
     @server.tool()
     def undo_history() -> dict:
         """Show the reversible recategorization, category-rename, category-delete,
-        merchant-rename, and created-rule batches, newest first: each with a summary
-        (e.g. 'Uncategorized→Shopping ×12'), count, when, and whether it has already
-        been undone.
+        merchant-rename, created-rule, and created auto-categorize-rule batches,
+        newest first: each with a summary (e.g. 'Uncategorized→Shopping ×12'),
+        count, when, and whether it has already been undone.
         """
         return _guard(lambda: {"history": journal.history()})
 
