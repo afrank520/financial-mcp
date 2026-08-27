@@ -107,6 +107,9 @@ class FakeAdapter(MonarchAdapter):
     def delete_transaction_rule(self, rule_id):
         return False
 
+    def update_transaction_rule(self, rule_id, operator, value, set_category_id, set_merchant):
+        return False
+
     def source_name(self):
         return "fake"
 
@@ -217,6 +220,8 @@ class _StubAdapter(MonarchAdapter):
     def create_category_rule(self, contains, category_id):
         return (False, None)
     def delete_transaction_rule(self, rule_id):
+        return False
+    def update_transaction_rule(self, rule_id, operator, value, set_category_id, set_merchant):
         return False
 
 

@@ -132,3 +132,6 @@ class CsvAdapter(MonarchAdapter):
 
     def delete_transaction_rule(self, rule_id: str) -> bool:
         raise RuntimeError("writes are not available in CSV mode")
+
+    def update_transaction_rule(self, rule_id, operator, value, set_category_id, set_merchant) -> bool:
+        raise RuntimeError("writes are not available in CSV mode")
