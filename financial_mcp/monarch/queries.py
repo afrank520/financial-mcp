@@ -343,9 +343,21 @@ GET_TRANSACTION_RULES = """
   query GetTransactionRules {
     transactionRules {
       id
+      order
       merchantCriteria { operator value __typename }
+      merchantCriteriaUseOriginalStatement
+      categoryIds
+      accountIds
+      amountCriteria { operator __typename }
+      originalStatementCriteria { operator __typename }
       setMerchantAction { id name __typename }
       setCategoryAction { id name __typename }
+      reviewStatusAction
+      sendNotificationAction
+      unassignNeedsReviewByUserAction
+      addTagsAction { id __typename }
+      linkGoalAction { id __typename }
+      linkSavingsGoalAction { id __typename }
       __typename
     }
   }
@@ -364,6 +376,15 @@ DELETE_TRANSACTION_RULE = """
   mutation Common_DeleteTransactionRule($id: ID!) {
     deleteTransactionRule(id: $id) {
       deleted
+      errors { message code __typename }
+      __typename
+    }
+  }
+"""
+
+UPDATE_TRANSACTION_RULE = """
+  mutation Common_UpdateTransactionRuleMutationV2($input: UpdateTransactionRuleInput!) {
+    updateTransactionRuleV2(input: $input) {
       errors { message code __typename }
       __typename
     }
