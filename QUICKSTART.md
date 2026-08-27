@@ -18,34 +18,48 @@ same for both), then jump to your path.
 
 ---
 
-## ⚡ Fastest path: the installer
+## Overview — the whole setup in 5 steps
 
-Rather not do the steps by hand? There's a script that does almost everything.
+Here's the entire thing at a glance. Each step is explained in full detail below —
+this is just the map so you know where you're headed:
 
-1. Do **Steps 1–3** of Part 1 below: check Python, get the code, and point
-   Terminal at the project folder.
-2. Then, instead of Steps 4–7, just run this one command:
+1. **Check you have Python 3.12 or newer** *(Step 1)*.
+2. **Download the code** as a ZIP from the repo *(Step 2)*.
+3. **Unzip it and move the folder** somewhere you'll remember, like Documents
+   *(Step 2)*.
+4. **Point Terminal at that folder** — type `cd` and a space, drag the folder onto
+   the Terminal window, press Enter *(Step 3)*.
+5. **Run the installer:**
 
    ```bash
    ./install.sh
    ```
 
-It sets up the environment, installs everything, signs you in to Monarch, and
-**offers to connect the Claude Desktop app for you** (it backs up your existing
-config first). Follow its prompts, then restart Claude and ask a question.
+   It builds the environment, installs everything, downloads the sign-in browser,
+   opens Monarch for you to log in, writes your settings, and **offers to connect
+   the Claude Desktop app for you.** When it finishes, fully quit Claude
+   (`Cmd + Q`), reopen it, and ask *"What are my Monarch account balances?"*
 
-> Why not a "paste this one line from the internet" installer? Because piping a
-> web script straight into your shell is exactly the kind of thing you shouldn't
-> do. You download the code, then run a script you can read — safer, same result.
+That's the fast path. Two things worth knowing before you start:
 
-**Safe to re-run anytime.** If an install gets interrupted or something looks
-off, just run `./install.sh` again — it reuses what's already there and won't
-touch your `config.yaml` or your saved Monarch login. To rebuild the environment
-from scratch (while still keeping your settings and login), run
-`./install.sh --fresh`.
+- The installer **also checks Python itself** and stops with a clear message if
+  it's too old — so step 1 above is just an early heads-up, not strictly required.
+- When it asks **"Add this to Claude Desktop automatically?"**, the default is
+  **No** — you have to type `y` and press Enter. If you just press Enter, it skips
+  that step and you'll have to connect Claude by hand later (Path A2). **Type `y`**
+  to let it do the work for you.
 
-Prefer to understand each step (or the script hit a snag)? Just follow Part 1 by
-hand. 👇
+> Why not a "paste one line from the internet" installer? Because piping a web
+> script straight into your shell is exactly the kind of thing you shouldn't do.
+> You download the code, then run a script you can read — safer, same result.
+
+**Safe to re-run anytime.** If an install gets interrupted or something looks off,
+just run `./install.sh` again — it reuses what's already there and won't touch your
+`config.yaml` or your saved Monarch login. To rebuild the environment from scratch
+(while still keeping your settings and login), run `./install.sh --fresh`.
+
+Prefer to understand and do each step by hand (or the installer hit a snag)?
+Follow **Part 1** below — it covers the same ground manually. 👇
 
 ---
 
