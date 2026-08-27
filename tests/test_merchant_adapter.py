@@ -42,7 +42,7 @@ def test_get_transaction_rules_flattens_shape(monkeypatch):
         "has_amount_criteria": False, "has_original_statement_criteria": False,
         "review_status_action": None, "send_notification": False, "unassign_needs_review": False,
         "has_add_tags": False, "has_link_goal": False, "has_link_savings_goal": False,
-        "has_merchant_criteria": False,
+        "has_merchant_criteria": False, "has_split_action": False,
     }
     assert rules[0] == {"id": "r1", "operator": "contains", "value": "amzn",
                         "set_merchant": "Amazon", "set_category": None, "set_category_id": None,

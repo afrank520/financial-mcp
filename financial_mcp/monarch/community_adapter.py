@@ -443,6 +443,7 @@ class CommunityAdapter(MonarchAdapter):
                 "has_add_tags": bool(r.get("addTagsAction")),
                 "has_link_goal": bool(r.get("linkGoalAction")),
                 "has_link_savings_goal": bool(r.get("linkSavingsGoalAction")),
+                "has_split_action": bool(r.get("splitTransactionsAction")),
             })
         return out
 

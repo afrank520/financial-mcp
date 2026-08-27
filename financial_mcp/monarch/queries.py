@@ -359,6 +359,7 @@ GET_TRANSACTION_RULES = """
       addTagsAction { id __typename }
       linkGoalAction { id __typename }
       linkSavingsGoalAction { id __typename }
+      splitTransactionsAction { __typename }
       __typename
     }
   }

@@ -382,8 +382,9 @@ def build_server(
         it sets (`set_category`, an existing category name), and the merchant it renames
         to (`set_merchant`). Only rules that match on merchant name and do nothing but
         set a category and/or merchant can be edited — a rule that also matches on amount,
-        original statement, category, or account, or that adds tags / links goals / etc.,
-        is refused (edit it in Monarch → Settings → Rules). Future-only: the edit changes
+        original statement, category, account, or a specific curated merchant, or that
+        adds tags / links goals / splits transactions / etc., is refused (edit it in
+        Monarch → Settings → Rules). Future-only: the edit changes
         how the rule labels transactions imported from now on; it does NOT retroactively
         recategorize or rename past transactions. In 'safe' mode this is two-phase: call
         without confirm_token to preview (nothing changes) and get a confirm_token, then

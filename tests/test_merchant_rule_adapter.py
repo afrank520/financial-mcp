@@ -153,6 +153,23 @@ def test_get_rules_parse_reads_name_criterion_and_flags_curated_merchant():
     assert r["has_merchant_criteria"] is True
 
 
+def test_get_rules_parse_flags_split_action():
+    # A rule that also SPLITS the transaction: the full-replacement update sends
+    # splitTransactionsAction:None and would wipe it, so it must be surfaced
+    # (has_split_action) and later fail-closed by rule_complexity.
+    ad = _seq_adapter([
+        {"transactionRules": [{
+            "id": "r1",
+            "merchantNameCriteria": [{"operator": "contains", "value": "acme"}],
+            "setMerchantAction": {"id": "m9", "name": "Acme"},
+            "setCategoryAction": None,
+            "splitTransactionsAction": {"__typename": "SplitTransactionsAction"}}]},
+    ])
+    (r,) = ad.get_transaction_rules()
+    assert r["value"] == "acme"
+    assert r["has_split_action"] is True
+
+
 def test_update_rule_true_when_reread_matches():
     ad = _seq_adapter([
         {"updateTransactionRuleV2": {"errors": []}},                     # mutation

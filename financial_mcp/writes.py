@@ -312,6 +312,10 @@ def rule_complexity(rule: dict) -> list[str]:
         reasons.append("links a goal")
     if rule.get("has_link_savings_goal"):
         reasons.append("links a savings goal")
+    if rule.get("has_split_action"):
+        # Splits the transaction — a criterion the full-replacement update sends null
+        # and would therefore wipe — fail-closed (same reasoning as has_merchant_criteria).
+        reasons.append("splits transactions")
     return reasons
 
 
