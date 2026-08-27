@@ -10,6 +10,11 @@ never leaves your machine except to talk to Monarch's own API.
 > by Monarch Money. It uses your logged-in browser session because Monarch has
 > no public API. Use at your own risk.
 
+> 👉 **New here, or not a developer?** Start with **[QUICKSTART.md](QUICKSTART.md)** —
+> a hold-your-hand, zero-to-running walkthrough for the Claude Desktop app (and a
+> short copy-paste path for Claude Code). The rest of this README is the overview;
+> [`docs/INSTALL.md`](docs/INSTALL.md) is the concise technical reference.
+
 ## What it does
 
 **See your money.** Ask Claude questions and get penny-accurate answers computed

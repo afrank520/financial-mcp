@@ -3,14 +3,24 @@
 Runs locally on your Mac and connects the Claude Desktop app to your Monarch
 Money data. Requires Python 3.12+.
 
+> **Not a developer?** Follow [`../QUICKSTART.md`](../QUICKSTART.md) instead — a
+> step-by-step, zero-to-running guide. This file is the concise reference.
+
 ## 1. Install
 
+Work in a virtual environment so dependencies stay isolated and the
+`financial-mcp` command lands at a stable path you can point Claude at:
+
 ```bash
-python -m pip install -e ".[dev]"
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -e ".[dev]"
+python3 -m playwright install chromium   # browser used only for sign-in (Step 3)
 ```
 
 This installs the server and two commands: `financial-mcp` (the server) and
-`financial-mcp-login` (one-time sign-in).
+`financial-mcp-login` (one-time sign-in). Both live at `.venv/bin/` — note that
+absolute path; Step 4 needs it.
 
 ## 2. Configure
 
@@ -69,14 +79,24 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "monarch": {
-      "command": "financial-mcp",
+      "command": "/absolute/path/to/repo/.venv/bin/financial-mcp",
       "env": { "FINANCIAL_MCP_CONFIG": "/absolute/path/to/config.yaml" }
     }
   }
 }
 ```
 
-Restart the Claude Desktop app, then ask: **"What are my account balances?"**
+**Use the absolute path to the venv's `financial-mcp`** (print it with
+`echo "$(pwd)/.venv/bin/financial-mcp"` from the repo). Claude Desktop launches
+the server outside your shell, so a bare `financial-mcp` won't be found on
+`PATH`. Restart the Claude Desktop app, then ask: **"What are my account
+balances?"**
+
+For Claude Code instead of the Desktop app:
+
+```bash
+claude mcp add monarch --env FINANCIAL_MCP_CONFIG="$(pwd)/config.yaml" -- "$(pwd)/.venv/bin/financial-mcp"
+```
 
 ## Sessions expire
 
