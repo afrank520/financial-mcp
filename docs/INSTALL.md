@@ -6,6 +6,11 @@ Money data. Requires Python 3.12+.
 > **Not a developer?** Follow [`../QUICKSTART.md`](../QUICKSTART.md) instead — a
 > step-by-step, zero-to-running guide. This file is the concise reference.
 
+> **Just want it working fast?** From the repo root, run `./install.sh` — it does
+> everything below (venv, install, Chromium, config, Monarch sign-in) and offers
+> to connect the Claude Desktop app for you. The steps below are the manual
+> equivalent.
+
 ## 1. Install
 
 Work in a virtual environment so dependencies stay isolated and the

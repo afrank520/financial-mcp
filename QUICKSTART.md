@@ -18,6 +18,31 @@ same for both), then jump to your path.
 
 ---
 
+## ⚡ Fastest path: the installer
+
+Rather not do the steps by hand? There's a script that does almost everything.
+
+1. Do **Steps 1–3** of Part 1 below: check Python, get the code, and open
+   Terminal *inside* the project folder.
+2. Then, instead of Steps 4–7, just run this one command:
+
+   ```bash
+   ./install.sh
+   ```
+
+It sets up the environment, installs everything, signs you in to Monarch, and
+**offers to connect the Claude Desktop app for you** (it backs up your existing
+config first). Follow its prompts, then restart Claude and ask a question.
+
+> Why not a "paste this one line from the internet" installer? Because piping a
+> web script straight into your shell is exactly the kind of thing you shouldn't
+> do. You download the code, then run a script you can read — safer, same result.
+
+Prefer to understand each step (or the script hit a snag)? Just follow Part 1 by
+hand. 👇
+
+---
+
 ## Part 1 — One-time setup (do this once)
 
 ### Step 1: Make sure you have Python 3.12 or newer
