@@ -26,7 +26,7 @@ class Config(BaseModel):
     db_path: str = "cache.db"
     log_level: str = "INFO"
     log_file: str | None = None
-    write_mode: Literal["off", "safe", "full"] = "safe"
+    write_mode: Literal["off", "safe", "full"] = "off"
     batch_cap: int = 200
     cache_ttls: CacheTTLs = CacheTTLs()
     csv_transactions_path: str | None = None

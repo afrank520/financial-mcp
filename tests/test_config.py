@@ -6,7 +6,7 @@ from financial_mcp.config import Config, load_config
 def test_defaults_when_no_file():
     cfg = load_config(None)
     assert isinstance(cfg, Config)
-    assert cfg.write_mode == "safe"
+    assert cfg.write_mode == "off"  # read-only unless the user opts in
     assert cfg.batch_cap == 200
     assert cfg.cache_ttls.transactions == 12 * 3600
     assert cfg.cache_ttls.categories == 7 * 24 * 3600

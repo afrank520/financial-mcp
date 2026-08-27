@@ -17,6 +17,8 @@ keyring_fallback*
 __pycache__/
 *.py[cod]
 *.egg-info/
+build/
+dist/
 .venv/
 venv/
 .pytest_cache/
@@ -32,6 +34,7 @@ htmlcov/
 # Source briefing materials — keep local, never commit
 *.png
 *.rtf
+*.pdf
 
 # uv lockfile (local resolver state)
 uv.lock
