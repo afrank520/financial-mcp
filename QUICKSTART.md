@@ -22,8 +22,8 @@ same for both), then jump to your path.
 
 Rather not do the steps by hand? There's a script that does almost everything.
 
-1. Do **Steps 1–3** of Part 1 below: check Python, get the code, and open
-   Terminal *inside* the project folder.
+1. Do **Steps 1–3** of Part 1 below: check Python, get the code, and point
+   Terminal at the project folder.
 2. Then, instead of Steps 4–7, just run this one command:
 
    ```bash
@@ -86,25 +86,27 @@ have.
 > Prefer git? `git clone https://github.com/afrank520/financial-mcp.git` instead
 > of steps 1–3. The rest is identical.
 
-### Step 3: Go into the folder in Terminal
+### Step 3: Point Terminal at the folder
 
-You need to tell Terminal to "work inside" that folder. There's an easy trick so
-you don't have to type the path by hand:
+Terminal always works in one folder at a time. Right now it's pointed at your
+home folder, so you need to point it at the project folder you just moved. Here's
+a trick so you don't have to type the location by hand:
 
-1. In Terminal, type `cd ` — that's the letters **c**, **d**, then a **space**.
-   Don't press Enter yet.
+1. In Terminal, type `cd` and then a **space** — the letters **c**, **d**, space.
+   (`cd` is just short for "change to this folder.") Don't press Enter yet.
 2. **Drag the project folder** from Finder and **drop it onto the Terminal
-   window.** Terminal fills in the full path for you.
+   window.** Terminal fills in the location for you automatically.
 3. Now press `Enter`.
 
-To confirm you're in the right place, run:
+To check it worked, type this and press Enter:
 
 ```bash
 ls
 ```
 
-You should see files like `README.md`, `pyproject.toml`, and
-`config.example.yaml` listed. If you do, you're in the right folder. 👍
+`ls` lists the files in the folder Terminal is pointed at. You should see names
+like `README.md`, `pyproject.toml`, and `config.example.yaml`. If you do, you're
+pointed at the right folder. 👍
 
 ### Step 4: Create the virtual environment and install
 
@@ -215,15 +217,28 @@ A browser window opens on the Monarch sign-in page.
 
 ## Path A — Claude Desktop app (recommended for most people)
 
-You'll tell the Claude Desktop app how to start this tool. To do that, Claude
-needs **two exact file paths** from your Mac. Let's print them so you can just
-copy them.
+The last step is connecting this tool to the Claude Desktop app. **Most people
+already did this without realizing it** — so start here:
 
-### A1: Get your two paths
+### A1: Did you use the installer?
 
-In the **same Terminal window** (still showing `(.venv)` and still inside the
-project folder), run these two lines and **keep the window open** — you'll copy
-the results in a moment:
+**If you ran `./install.sh` and answered _yes_ when it asked to connect Claude
+Desktop** — you're already connected. There's nothing more to set up. **Skip
+straight to [A3: Restart and test](#a3-restart-and-test).**
+
+If you set everything up by hand, or you answered _no_ to that question, do
+**A2** first.
+
+### A2: Connect it by hand (only if the installer didn't do it)
+
+You're going to give Claude two pieces of information: **where this tool lives**
+and **where its settings file is.** We'll print both, then paste them into
+Claude's settings.
+
+**Step 1 — print your two locations.** In the same Terminal window from Part 1
+(the one whose prompt starts with `(.venv)`), run these two lines, one at a time.
+Each prints a line starting with `/Users/…`. Leave them on screen — you'll copy
+them in a moment:
 
 ```bash
 echo "$(pwd)/.venv/bin/financial-mcp"
@@ -233,49 +248,50 @@ echo "$(pwd)/.venv/bin/financial-mcp"
 echo "$(pwd)/config.yaml"
 ```
 
-Each prints a line starting with `/Users/...`. The first is the **command path**,
-the second is the **config path**. Leave them on screen.
-
-### A2: Open Claude's config file
+**Step 2 — open Claude's settings file.**
 
 1. Open the **Claude Desktop** app. (Don't have it? Download it free from
    [claude.ai/download](https://claude.ai/download) and sign in.)
 2. In the menu bar, go to **Claude → Settings** (or press `Cmd + ,`).
 3. Click **Developer** in the sidebar, then click **Edit Config**.
-4. This opens a file called `claude_desktop_config.json` in a text editor. It's
-   either empty, says `{}`, or already has some content.
+4. A file called `claude_desktop_config.json` opens in a text editor.
 
-### A3: Paste in the connection
+**Step 3 — add the connection.** What you do depends on what's already in that
+file:
 
-Replace the entire contents of that file with the block below — then swap in your
-two paths from Step A1:
+- **If it's empty or just says `{}`** → select everything, delete it, and paste
+  this in its place:
 
-```json
-{
-  "mcpServers": {
-    "monarch": {
-      "command": "/Users/you/Documents/financial-mcp/.venv/bin/financial-mcp",
-      "env": {
-        "FINANCIAL_MCP_CONFIG": "/Users/you/Documents/financial-mcp/config.yaml"
+  ```json
+  {
+    "mcpServers": {
+      "monarch": {
+        "command": "PASTE-YOUR-FIRST-LINE-HERE",
+        "env": {
+          "FINANCIAL_MCP_CONFIG": "PASTE-YOUR-SECOND-LINE-HERE"
+        }
       }
     }
   }
-}
-```
+  ```
 
-- Replace the `"command"` value with your **first** path (the `.venv/bin/...`
-  one).
-- Replace the `FINANCIAL_MCP_CONFIG` value with your **second** path (the
-  `config.yaml` one).
-- Keep the quotes `"` and the exact layout. Then **save** the file (`Cmd + S`).
+- **If it already has other things in it** → **don't delete anything.** Add just
+  the `"monarch": { … }` block inside the existing `"mcpServers"` section, with a
+  comma separating it from what's already there.
 
-> Already have other things in `mcpServers`? Don't wipe them — just add the
-> `"monarch": { ... }` piece alongside what's there, separated by a comma.
+**Step 4 — fill in your two lines and save.** Replace `PASTE-YOUR-FIRST-LINE-HERE`
+with the first line you printed (it ends in `/.venv/bin/financial-mcp`) and
+`PASTE-YOUR-SECOND-LINE-HERE` with the second (it ends in `/config.yaml`). Keep
+the quotes `"` around each one. Then save the file with **`Cmd + S`**.
 
-### A4: Restart and test
+> Those two lines are the whole trick — if Claude later can't find your accounts,
+> it's almost always because one of them was pasted wrong. They must be the
+> **full** paths you printed, quotes and all.
+
+### A3: Restart and test
 
 1. **Fully quit** Claude Desktop — `Cmd + Q`. (Just closing the window isn't
-   enough; it has to fully quit and reopen to load the new setting.)
+   enough; it has to fully quit and reopen to load the connection.)
 2. Reopen Claude Desktop.
 3. In a **new chat**, ask:
 
@@ -374,11 +390,12 @@ Everything is computed on your machine and answered penny-accurately.
 ## If something goes wrong
 
 **Claude says it doesn't have a "monarch" tool / can't see your accounts.**
-The most common cause is a wrong path in the config. Re-run the two `echo`
-commands from Step A1 and make sure those *exact* strings are in
-`claude_desktop_config.json`. The `command` path must end in
-`/.venv/bin/financial-mcp`. Save, then **fully quit** Claude (`Cmd + Q`) and
-reopen. (This missing-full-path issue is the #1 first-time snag.)
+The most common cause is a wrong path in the settings file. Re-run the two `echo`
+commands from **[A2, Step 1](#a2-connect-it-by-hand-only-if-the-installer-didnt-do-it)**
+and make sure those *exact* lines are in `claude_desktop_config.json`. The
+`command` line must end in `/.venv/bin/financial-mcp`. Save, then **fully quit**
+Claude (`Cmd + Q`) and reopen. (This missing-full-path issue is the #1 first-time
+snag.)
 
 **Claude answers but says the session expired / asks you to log in again.**
 Monarch sessions expire after a while. Just re-run the sign-in:
