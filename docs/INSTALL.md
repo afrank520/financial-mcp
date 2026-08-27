@@ -44,6 +44,13 @@ Monarch has no public API, so the server uses your logged-in browser session.
 It reads only `session_id` + `csrftoken` — never your password — and stores them
 in a permission-locked file (see "Where your credentials live" in the README).
 
+> **Google-only sign-in?** If you normally sign in to Monarch with Google, add an
+> email/password to your Monarch account first (account settings → security, or
+> the "Forgot password?" link on the login page) — automated local sign-in can't
+> use Google's button. This does **not** disable Google sign-in; both methods
+> coexist, so your Monarch website and mobile app logins with Google are
+> unaffected.
+
 ```bash
 financial-mcp-login
 ```

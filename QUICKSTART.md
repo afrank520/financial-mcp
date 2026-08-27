@@ -147,7 +147,20 @@ work.
 
 Monarch has no public developer access, so the tool signs in the same way you do
 — through a browser. It only ever keeps two small session cookies, **never your
-password**. Run:
+password**.
+
+> **Do you only ever sign in to Monarch with Google?** Then you'll need to add an
+> **email-and-password** login to your Monarch account before this step will work
+> — an automated local sign-in can't use Google's button. Here's the reassuring
+> part: **this does not replace or turn off Google sign-in.** Monarch keeps both
+> methods on the same account, so you can keep logging into the Monarch **website
+> and mobile app with Google exactly as you do today** — nothing about that
+> changes. The email/password is only so this tool can sign in here on your Mac.
+> To add one: in Monarch, open your **account settings → security** and set a
+> password, or use the **"Forgot password?"** link on the Monarch login page with
+> your account email. Then use that email + password below.
+
+Run:
 
 ```bash
 financial-mcp-login
