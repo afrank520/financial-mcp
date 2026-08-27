@@ -15,7 +15,12 @@
 # top to bottom before running if you like — that's the whole point of shipping
 # a script you run locally instead of a "curl | bash" one-liner.
 #
-# Usage:  ./install.sh      (run it from inside this folder)
+# Usage:  ./install.sh           (run it from inside this folder)
+#         ./install.sh --fresh   (rebuild .venv from scratch; keeps your
+#                                  config.yaml and saved Monarch login)
+#
+# Safe to re-run anytime — it reuses what's already there and won't clobber
+# your settings.
 
 set -euo pipefail
 
@@ -33,6 +38,18 @@ ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; }  # green check
 warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }  # yellow bang
 die()  { printf '\n\033[31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
 
+# ── Options ──────────────────────────────────────────────────────────────────
+FRESH=0
+for arg in "$@"; do
+  case "$arg" in
+    --fresh) FRESH=1 ;;
+    -h|--help)
+      printf 'Usage: ./install.sh [--fresh]\n  --fresh  rebuild the .venv from scratch (keeps config.yaml + your Monarch login)\n'
+      exit 0 ;;
+    *) die "Unknown option: $arg (try: ./install.sh --help)" ;;
+  esac
+done
+
 # ── 1. Python 3.12+ ──────────────────────────────────────────────────────────
 say "1/7  Checking Python…"
 PYBIN="$(command -v python3 || true)"
@@ -43,6 +60,10 @@ ok "$("$PYBIN" --version) at $PYBIN"
 
 # ── 2. Virtual environment ───────────────────────────────────────────────────
 say "2/7  Creating the virtual environment…"
+if [ "$FRESH" -eq 1 ] && [ -d "$VENV" ]; then
+  rm -rf "$VENV"
+  ok "Removed the old .venv (--fresh); your config.yaml and Monarch login are untouched"
+fi
 if [ -x "$PY" ]; then
   ok "Reusing existing .venv"
 else
@@ -65,6 +86,33 @@ ok "Ready"
 say "5/7  Setting up your config…"
 if [ -f "$SCRIPT_DIR/config.yaml" ]; then
   warn "config.yaml already exists — leaving your settings untouched."
+  CURRENT_SRC="$(grep -E '^[[:space:]]*source:' "$SCRIPT_DIR/config.yaml" 2>/dev/null \
+    | head -n1 \
+    | sed -E 's/^[[:space:]]*source:[[:space:]]*//; s/#.*$//; s/[[:space:]]*$//; s/^"//; s/"$//' \
+    || true)"
+  [ -n "$CURRENT_SRC" ] || CURRENT_SRC="unknown"
+  if [ "$CURRENT_SRC" = "live" ]; then
+    ok "Data source is already \"live\"."
+  else
+    warn "Its data source is \"$CURRENT_SRC\", not \"live\" — you won't see real Monarch data."
+    printf '  Switch it to live now? [Y/n] '
+    read -r FIXSRC || true
+    if [[ ! "$FIXSRC" =~ ^[Nn]$ ]]; then
+      "$PY" - "$SCRIPT_DIR/config.yaml" <<'PY'
+import pathlib, re, sys
+p = pathlib.Path(sys.argv[1])
+t = p.read_text()
+if re.search(r'(?m)^source:\s*\S+', t):
+    t = re.sub(r'(?m)^source:\s*\S+.*$', 'source: live', t)
+else:
+    t = t.rstrip() + "\nsource: live\n"
+p.write_text(t)
+PY
+      ok "Set source: live"
+    else
+      warn "Left as \"$CURRENT_SRC\". Re-run and choose Yes, or edit config.yaml by hand."
+    fi
+  fi
 else
   cp "$SCRIPT_DIR/config.example.yaml" "$SCRIPT_DIR/config.yaml"
   "$PY" - "$SCRIPT_DIR/config.yaml" <<'PY'
@@ -86,7 +134,7 @@ cat <<'EOF'
       NOT disable Google — your website and mobile logins keep working.
 EOF
 printf '  Press Enter when you are ready… '
-read -r _
+read -r _ || true
 if "$VENV/bin/financial-mcp-login"; then
   ok "Signed in"
 else
@@ -146,7 +194,7 @@ PY
 }
 
 printf '  Add this to Claude Desktop automatically? A backup is made first. [y/N] '
-read -r ANSWER
+read -r ANSWER || true
 if [[ "$ANSWER" =~ ^[Yy]$ ]]; then
   if wire_up; then
     ok "Claude Desktop configured."

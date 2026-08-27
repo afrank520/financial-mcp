@@ -38,6 +38,12 @@ config first). Follow its prompts, then restart Claude and ask a question.
 > web script straight into your shell is exactly the kind of thing you shouldn't
 > do. You download the code, then run a script you can read — safer, same result.
 
+**Safe to re-run anytime.** If an install gets interrupted or something looks
+off, just run `./install.sh` again — it reuses what's already there and won't
+touch your `config.yaml` or your saved Monarch login. To rebuild the environment
+from scratch (while still keeping your settings and login), run
+`./install.sh --fresh`.
+
 Prefer to understand each step (or the script hit a snag)? Just follow Part 1 by
 hand. 👇
 
@@ -392,6 +398,17 @@ run `financial-mcp-login` again, and use the **email + password** form instead.
 Your virtual environment isn't active. Make sure your Terminal prompt shows
 `(.venv)`; if not, `cd` into the project folder and run
 `source .venv/bin/activate`, then try again.
+
+**An install got interrupted, or you just want a clean slate.**
+Re-running `./install.sh` is always safe — it picks up where it left off and
+leaves your `config.yaml` and Monarch login alone. To rebuild the environment
+from scratch (say the `.venv` got into a weird state), run:
+
+```bash
+./install.sh --fresh
+```
+
+That deletes and recreates `.venv` only; your settings and saved login are kept.
 
 **Still stuck?** The more technical reference is in
 [`docs/INSTALL.md`](docs/INSTALL.md), including the manual "copy-as-cURL" sign-in

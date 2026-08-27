@@ -17,6 +17,12 @@ That is the whole setup. Do **not** hand-roll the steps unless `install.sh`
 fails; if it does, the equivalent manual steps are in [`docs/INSTALL.md`](docs/INSTALL.md),
 and the beginner walkthrough is [`QUICKSTART.md`](QUICKSTART.md).
 
+`install.sh` is safe to re-run — it's idempotent, reuses an existing `.venv`,
+and never overwrites `config.yaml` or the saved Monarch login (on re-run it only
+offers to flip `source` to `live` if it isn't). If the environment is broken, run
+`./install.sh --fresh` to rebuild `.venv` from scratch while preserving config and
+login.
+
 Key facts to get right if you ever do it by hand:
 - Always work in `.venv` (`python3 -m venv .venv`). The `financial-mcp` command
   lands at `.venv/bin/financial-mcp` — that **absolute path** is what Claude
