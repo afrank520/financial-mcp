@@ -110,3 +110,65 @@ def test_csv_create_category_rule_raises():
     ad = CsvAdapter("unused_txns.csv", "unused_balances.csv")
     with pytest.raises(RuntimeError):
         ad.create_category_rule("SHELL", "cat123")
+
+
+def test_get_rules_parse_surfaces_enriched_fields():
+    ad = _seq_adapter([
+        {"transactionRules": [{
+            "id": "r1", "order": 3,
+            "merchantCriteria": [{"operator": "eq", "value": "ubs arena"}],
+            "merchantCriteriaUseOriginalStatement": False,
+            "categoryIds": None, "accountIds": None,
+            "amountCriteria": None, "originalStatementCriteria": None,
+            "setMerchantAction": {"id": "m9", "name": "UBS Arena"},
+            "setCategoryAction": {"id": "c7", "name": "Entertainment"},
+            "reviewStatusAction": None, "sendNotificationAction": False,
+            "unassignNeedsReviewByUserAction": False,
+            "addTagsAction": None, "linkGoalAction": None, "linkSavingsGoalAction": None,
+        }]},
+    ])
+    (r,) = ad.get_transaction_rules()
+    assert r["id"] == "r1" and r["order"] == 3
+    assert r["operator"] == "eq" and r["value"] == "ubs arena"
+    assert r["set_merchant"] == "UBS Arena"
+    assert r["set_category"] == "Entertainment" and r["set_category_id"] == "c7"
+    assert r["has_amount_criteria"] is False and r["category_ids"] == []
+
+
+def test_update_rule_true_when_reread_matches():
+    ad = _seq_adapter([
+        {"updateTransactionRuleV2": {"errors": []}},                     # mutation
+        {"transactionRules": [{                                          # re-read reflects it
+            "id": "r1",
+            "merchantCriteria": [{"operator": "contains", "value": "ubs"}],
+            "setMerchantAction": None,
+            "setCategoryAction": {"id": "c7", "name": "Entertainment"}}]},
+    ])
+    assert ad.update_transaction_rule("r1", "contains", "ubs", "c7", None) is True
+
+
+def test_update_rule_false_on_error_payload():
+    ad = _seq_adapter([
+        {"updateTransactionRuleV2": {"errors": [{"message": "bad", "code": "X"}]}},
+    ])
+    assert ad.update_transaction_rule("r1", "contains", "ubs", "c7", None) is False
+
+
+def test_update_rule_false_when_reread_does_not_match():
+    ad = _seq_adapter([
+        {"updateTransactionRuleV2": {"errors": []}},
+        {"transactionRules": [{                                          # value did not change
+            "id": "r1",
+            "merchantCriteria": [{"operator": "contains", "value": "OLD"}],
+            "setMerchantAction": None,
+            "setCategoryAction": {"id": "c7", "name": "Entertainment"}}]},
+    ])
+    assert ad.update_transaction_rule("r1", "contains", "ubs", "c7", None) is False
+
+
+def test_csv_update_rule_raises():
+    from financial_mcp.monarch.csv_adapter import CsvAdapter
+    import pytest
+    ad = CsvAdapter("unused_txns.csv", "unused_balances.csv")
+    with pytest.raises(RuntimeError):
+        ad.update_transaction_rule("r1", "contains", "ubs", "c7", None)

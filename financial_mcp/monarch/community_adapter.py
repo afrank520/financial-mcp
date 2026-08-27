@@ -33,8 +33,9 @@ from financial_mcp.monarch.queries import (
     UPDATE_CATEGORY,
     UPDATE_TRANSACTION_CATEGORY,
     UPDATE_TRANSACTION_MERCHANT,
+    UPDATE_TRANSACTION_RULE,
 )
-from financial_mcp.writes import _category_rule_input, _rename_rule_input
+from financial_mcp.writes import _category_rule_input, _rename_rule_input, _update_rule_input
 
 GRAPHQL_URL = "https://api.monarch.com/graphql"
 # A real-browser User-Agent keeps us clear of any future Cloudflare UA rule.
@@ -421,6 +422,19 @@ class CommunityAdapter(MonarchAdapter):
                 "value": crit.get("value"),
                 "set_merchant": sm.get("name"),
                 "set_category": sc.get("name"),
+                "set_category_id": sc.get("id"),
+                "order": r.get("order"),
+                "uses_original_statement": bool(r.get("merchantCriteriaUseOriginalStatement")),
+                "category_ids": r.get("categoryIds") or [],
+                "account_ids": r.get("accountIds") or [],
+                "has_amount_criteria": bool(r.get("amountCriteria")),
+                "has_original_statement_criteria": bool(r.get("originalStatementCriteria")),
+                "review_status_action": r.get("reviewStatusAction"),
+                "send_notification": bool(r.get("sendNotificationAction")),
+                "unassign_needs_review": bool(r.get("unassignNeedsReviewByUserAction")),
+                "has_add_tags": bool(r.get("addTagsAction")),
+                "has_link_goal": bool(r.get("linkGoalAction")),
+                "has_link_savings_goal": bool(r.get("linkSavingsGoalAction")),
             })
         return out
 
@@ -455,3 +469,20 @@ class CommunityAdapter(MonarchAdapter):
         self._run(self._transport(
             "Common_DeleteTransactionRule", DELETE_TRANSACTION_RULE, {"id": rule_id}))
         return rule_id not in {r["id"] for r in self.get_transaction_rules()}
+
+    def update_transaction_rule(self, rule_id, operator, value,
+                                set_category_id, set_merchant) -> bool:
+        # updateTransactionRuleV2 returns only {errors}; verify by re-read.
+        payload = self._run(self._transport(
+            "Common_UpdateTransactionRuleMutationV2", UPDATE_TRANSACTION_RULE,
+            {"input": _update_rule_input(rule_id, operator, value, set_category_id, set_merchant)}))
+        errors = ((payload.get("updateTransactionRuleV2") or {}).get("errors")) or []
+        if errors:
+            return False
+        rule = next((r for r in self.get_transaction_rules() if r["id"] == rule_id), None)
+        if rule is None:
+            return False
+        return (rule.get("operator") == operator
+                and rule.get("value") == value
+                and (rule.get("set_category_id") or None) == (set_category_id or None)
+                and (rule.get("set_merchant") or None) == (set_merchant or None))
