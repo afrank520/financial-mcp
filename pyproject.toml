@@ -1,10 +1,11 @@
 [project]
 name = "financial-mcp"
-version = "0.1.0"
-description = "Local MCP server for Monarch Money (personal use)"
+version = "1.0.0"
+description = "Local MCP server that lets Claude read and safely maintain your Monarch Money data"
+license = "Apache-2.0"
 requires-python = ">=3.12"
 dependencies = [
-    "mcp>=1.2.0",
+    "mcp>=1.2.0,<2",  # mcp 2.x renamed FastMCP -> MCPServer; v1 code targets the 1.x API
     "pydantic>=2.6",
     "pyyaml>=6.0",
     "keyring>=25.0",

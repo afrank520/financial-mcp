@@ -113,8 +113,9 @@ def _browser_login() -> dict | None:
 
     profile_dir = str(Path(__file__).resolve().parent.parent / ".pw-profile")
     print(
-        "Opening a browser for Monarch sign-in — complete Google sign-in in "
-        "the window that appears."
+        "Opening a browser for Monarch sign-in — sign in with your email and "
+        "password in the window that appears (the Google sign-in button is "
+        "blocked by Monarch's bot detection; use email + password)."
     )
     kwargs = {"profile_dir": profile_dir}
     # Optional override for a cold first-time sign-in (email+password+MFA) that

@@ -1,20 +1,70 @@
-# Install — Monarch MCP (Plan 1, CSV mode)
+# Install — Monarch MCP
+
+Runs locally on your Mac and connects the Claude Desktop app to your Monarch
+Money data. Requires Python 3.12+.
 
 ## 1. Install
+
 ```bash
 python -m pip install -e ".[dev]"
 ```
 
+This installs the server and two commands: `financial-mcp` (the server) and
+`financial-mcp-login` (one-time sign-in).
+
 ## 2. Configure
+
 ```bash
 cp config.example.yaml config.yaml
 ```
-Copy your Monarch CSV exports somewhere git-ignored (e.g. `~/.financial_mcp/`)
-and set `csv_transactions_path` and `csv_balances_path` in `config.yaml`.
-**Never commit real CSVs or `config.yaml`.**
 
-## 3. Connect the Claude Desktop app
+For live Monarch data, set `source: live` in `config.yaml`. Control writes with
+`write_mode`: `"off"` (read-only), `"safe"` (reversible writes), or `"full"`
+(adds destructive operations). Quote the value — bare `off` is parsed as boolean
+`false` by YAML. **Never commit `config.yaml`** (it's git-ignored).
+
+> You can also run fully offline against Monarch CSV exports by setting
+> `source: csv` and pointing `csv_transactions_path` / `csv_balances_path` at
+> files in a git-ignored location (e.g. `~/.financial_mcp/`). Live mode is the
+> normal path; CSV mode needs no login.
+
+## 3. Log in once (live mode)
+
+Monarch has no public API, so the server uses your logged-in browser session.
+It reads only `session_id` + `csrftoken` — never your password — and stores them
+in a permission-locked file (see "Where your credentials live" in the README).
+
+```bash
+financial-mcp-login
+```
+
+A browser window opens. **Sign in with your email and password** (use the
+regular email/password form — the automated Google sign-in button is blocked by
+Monarch's bot detection). Once you're in, the session is captured and saved
+automatically.
+
+- Cold first-time sign-in with MFA can take longer than the 180-second default.
+  If it times out, retry with a longer window:
+  `FINANCIAL_MCP_LOGIN_TIMEOUT=600 financial-mcp-login`
+- To log out: `financial-mcp-login --logout`
+
+### Manual fallback (if the browser login can't run)
+
+`financial-mcp-login` falls back to this automatically, or force it with
+`financial-mcp-login --curl`:
+
+1. In your browser, open Monarch (`app.monarch.com`) and log in.
+2. Open DevTools → **Network** tab, filter `graphql`.
+3. Click a **POST** request to `api.monarch.com/graphql` (reload if none appear).
+4. Right-click → **Copy → Copy as cURL**.
+5. Paste it at the prompt, then press **Ctrl-D**.
+
+Only `session_id` + `csrftoken` are extracted; every other cookie is discarded.
+
+## 4. Connect the Claude Desktop app
+
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
 ```json
 {
   "mcpServers": {
@@ -25,62 +75,17 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   }
 }
 ```
-Restart the Claude Desktop app. Ask: "What are my account balances?"
 
-## Plan 1 scope
-Read-only, offline, over your CSV exports. Live Monarch sync (Plan 2),
-deeper analytics (Plan 3), and writes (Plan 4) come next.
+Restart the Claude Desktop app, then ask: **"What are my account balances?"**
 
-## Plan 2 — Live Monarch sync (cookie auth)
+## Sessions expire
 
-Monarch's API requires a logged-in browser session (there is no public token/OAuth).
-`financial-mcp-login` reads your session cookies once (never your password) and stores
-them in a permission-locked file only your user account can read
-(`~/.financial_mcp/session.json`, permissions `600`) — the same way the GitHub CLI
-stores its token. It is **not** encrypted at rest; rely on your disk encryption
-(e.g. FileVault) to protect a lost or stolen machine. For OS-managed encryption at
-rest, set `credential_store: keyring` in `config.yaml` (macOS may prompt once to allow
-access); to move an existing keyring session into the file store, run
-`financial-mcp-login --migrate-from-keyring`.
+If the Monarch session expires, tools return a clear "re-run `financial-mcp-login`"
+message and the server keeps serving cached data with its age shown. Just log in
+again.
 
-### 1. Log in once (terminal, not Claude)
-```bash
-financial-mcp-login
-```
-1. In your browser, open Monarch (`app.monarch.com`) and log in as usual.
-2. Open DevTools → **Network** tab, type `graphql` in the filter.
-3. Click a **POST** request to `api.monarch.com/graphql` (reload the page if none appear).
-4. Right-click it → **Copy → Copy as cURL**.
-5. Paste it into the terminal at the prompt, then press **Ctrl-D**.
+## Optional: OS keyring instead of a file
 
-The command extracts only `session_id` + `csrftoken` and stores them in your configured
-credential store (the file store by default); every other cookie in the paste is
-discarded. To log out: `financial-mcp-login --logout`.
-
-### 2. Switch config to live
-In `config.yaml`:
-```yaml
-source: live
-```
-
-### 3. Manual smoke test (once, assumes a valid session)
-```bash
-FINANCIAL_MCP_CONFIG=config.yaml python -c "
-from financial_mcp.config import load_config
-from financial_mcp.credentials import make_credential_store
-from financial_mcp.monarch.community_adapter import CommunityAdapter
-cfg = load_config('config.yaml')
-a = CommunityAdapter(make_credential_store(cfg).load_session())
-print('accounts:', [x.name for x in a.get_accounts()])
-print('transactions:', len(a.get_transactions()))
-"
-```
-Expected: your real account names and a transaction count. **If the field names look
-wrong**, the live GraphQL shape differs from the mappers in `community_adapter.py` —
-adjust `_to_account` / `_to_transaction` and re-run `pytest tests/test_community_adapter.py`.
-
-If the session has expired, tools return a clear "re-run `financial-mcp-login`" message
-and the server keeps serving cached data with its age.
-
-> **Coming next (Plan 2.2):** a browser-driven login that opens a window, lets you sign
-> in with Google normally, and captures the session automatically — no DevTools or cURL.
+Set `credential_store: keyring` in `config.yaml` for OS-managed encryption at
+rest (macOS may prompt once to allow access). To move an existing keyring
+session into the default file store: `financial-mcp-login --migrate-from-keyring`.

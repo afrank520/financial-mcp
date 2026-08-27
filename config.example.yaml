@@ -7,8 +7,9 @@ log_level: INFO
 log_file: financial_mcp.log      # omit or null for stderr only
 
 # off = reads only | safe = reads + reversible writes | full = + destructive
+# Ships read-only. Change to "safe" (or "full") to enable writes.
 # IMPORTANT: Quote "off" (bare off is parsed as boolean false by YAML)
-write_mode: "safe"
+write_mode: "off"
 batch_cap: 200
 
 # Cache freshness in SECONDS, per data type.
