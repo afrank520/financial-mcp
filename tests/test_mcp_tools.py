@@ -2220,3 +2220,43 @@ def test_update_rule_failed_write_reports_and_does_not_journal(tmp_path):
     out = _tool(server, "update_transaction_rule")("r1", match_text="ubs arena")
     assert out["updated"] is False
     assert journal.last_undoable_batch() is None  # nothing journaled
+
+
+def test_update_rule_undo_round_trip(tmp_path):
+    ad = UpdateRuleAdapter(); ad.rules.append(_simple_cat_rule())
+    svc, journal, server = _rule_server(tmp_path, adapter=ad, write_mode="full")
+    update = _tool(server, "update_transaction_rule")
+    undo = _tool(server, "undo_last")
+
+    update("r1", match_text="ubs arena", set_category="Shopping")
+    assert ad.rules[0]["value"] == "ubs arena"
+    assert ad.rules[0]["set_category_id"] == "c8"
+
+    out = undo()
+    assert out["reversed"] == 1 and out["failed"] == 0
+    # restored to the original state
+    assert ad.rules[0]["value"] == "ubs"
+    assert ad.rules[0]["set_category_id"] == "c7"
+
+
+def test_update_rule_undo_failure_stays_retryable(tmp_path):
+    class _FailOnUndoAdapter(UpdateRuleAdapter):
+        def __init__(self):
+            super().__init__()
+            self._allow = True
+        def update_transaction_rule(self, rule_id, operator, value, set_category_id, set_merchant):
+            if not self._allow:      # the compensating edit (undo) fails
+                return False
+            return super().update_transaction_rule(
+                rule_id, operator, value, set_category_id, set_merchant)
+
+    ad = _FailOnUndoAdapter(); ad.rules.append(_simple_cat_rule())
+    svc, journal, server = _rule_server(tmp_path, adapter=ad, write_mode="full")
+    _tool(server, "update_transaction_rule")("r1", match_text="ubs arena")
+    ad._allow = False
+
+    out = _tool(server, "undo_last")()
+    assert out["reversed"] == 0 and out["failed"] == 1
+    assert out["failures"][0]["rule_id"] == "r1"
+    # still retryable: batch not closed
+    assert journal.last_undoable_batch() is not None

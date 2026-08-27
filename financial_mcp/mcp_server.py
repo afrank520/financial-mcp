@@ -1066,12 +1066,12 @@ def build_server(
     @server.tool()
     def undo_last() -> dict:
         """Reverse the most recent recategorization, category-rename, category-delete,
-        merchant-rename, created auto-categorize rule, or created merchant-rename
-        rule batch (multi-level: call again to step back to the previous one). Undo
+        merchant-rename, created auto-categorize rule, created merchant-rename rule, or
+        rule edit batch (multi-level: call again to step back to the previous one). Undo
         is a compensating write — it re-sets each item to the value it had when the
-        write ran; deletions are reversed by recreating the category; created rules
-        are reversed by deleting the rule. Does not detect edits you made afterward.
-        Refuses in write_mode 'off'.
+        write ran; deletions are reversed by recreating the category; created rules are
+        reversed by deleting the rule; rule edits are reversed by re-applying the old
+        values. Does not detect edits you made afterward. Refuses in write_mode 'off'.
         """
         disabled = _writes_enabled()
         if disabled:
@@ -1097,6 +1097,11 @@ def build_server(
                     ok = svc.delete_transaction_rule(r["target_id"])
                 elif r["op_type"] == "create_category_rule":
                     ok = svc.delete_transaction_rule(r["target_id"])
+                elif r["op_type"] == "update_rule":
+                    old = json.loads(r["old_value"])
+                    ok = svc.update_transaction_rule(
+                        r["target_id"], old["operator"], old["value"],
+                        old["set_category_id"], old["set_merchant"])
                 else:
                     ok = False
                 if ok:
@@ -1118,6 +1123,9 @@ def build_server(
                     elif r["op_type"] == "create_category_rule":
                         failures.append({"rule_id": r["target_id"],
                                          "reason": "Monarch did not delete the rule"})
+                    elif r["op_type"] == "update_rule":
+                        failures.append({"rule_id": r["target_id"],
+                                         "reason": "Monarch did not apply the compensating edit"})
                     else:
                         failures.append({"category_id": r["target_id"],
                                          "reason": "Monarch did not apply the rename"})
