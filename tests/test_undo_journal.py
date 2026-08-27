@@ -194,3 +194,27 @@ def test_create_category_rule_is_reversible_and_summarized(tmp_path):
     hist = j.history()
     assert hist[0]["summary"] == "Rule: contains 'SHELL' → category 'Gas' ×1"
     assert hist[0]["undone"] is False
+
+
+def test_update_rule_is_reversible_and_history_renders(tmp_path):
+    import json
+    from financial_mcp.cache.undo_journal import UndoJournal, REVERSIBLE_OPS
+    assert "update_rule" in REVERSIBLE_OPS
+
+    j = UndoJournal(str(tmp_path / "j.db"))
+    old = json.dumps({"operator": "contains", "value": "OLD",
+                      "set_category_id": "c7", "set_merchant": None})
+    new = json.dumps({"operator": "contains", "value": "NEW",
+                      "set_category_id": "c7", "set_merchant": None})
+    j.record("b1", "update_rule", "r1", old, new,
+             "contains 'OLD' → cat 'Entertainment'", "contains 'NEW' → cat 'Entertainment'")
+    j.mark_succeeded("b1", "r1")
+
+    assert j.last_undoable_batch() == "b1"
+    (row,) = j.undoable_rows("b1")
+    assert row["op_type"] == "update_rule"
+    assert json.loads(row["old_value"])["value"] == "OLD"
+
+    (h,) = j.history()
+    assert "Rule edit:" in h["summary"]
+    assert "OLD" in h["summary"] and "NEW" in h["summary"]

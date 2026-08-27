@@ -238,3 +238,78 @@ def test_category_rule_token_is_deterministic_and_distinct():
     assert a != writes.compute_category_rule_token("SHELL OIL", "cat2")
     # Distinct namespace from the rename-rule token (no cross-collision).
     assert a != writes.compute_rule_token("SHELL OIL", "cat1")
+
+
+def test_update_rule_input_is_create_shape_plus_id_and_preserves_operator():
+    from financial_mcp.writes import _update_rule_input
+    inp = _update_rule_input("rule9", "eq", "ubs arena", "cat7", None)
+    assert inp["id"] == "rule9"
+    # operator is PASSED THROUGH, not hardcoded to "contains"
+    assert inp["merchantNameCriteria"] == [{"operator": "eq", "value": "ubs arena"}]
+    assert inp["setCategoryAction"] == "cat7"
+    assert inp["setMerchantAction"] is None
+    assert inp["applyToExistingTransactions"] is False
+    assert inp["merchantCriteriaUseOriginalStatement"] is False
+    # every other criterion/action is explicit-null
+    for k in ("accountIds", "categoryIds", "amountCriteria", "merchantCriteria",
+              "originalStatementCriteria", "addTagsAction", "linkGoalAction",
+              "linkSavingsGoalAction", "reviewStatusAction", "splitTransactionsAction"):
+        assert inp[k] is None
+
+
+def test_update_rule_input_carries_merchant_rename_as_bare_string():
+    from financial_mcp.writes import _update_rule_input
+    inp = _update_rule_input("rule9", "contains", "aplpay ubs", None, "UBS Arena")
+    assert inp["setMerchantAction"] == "UBS Arena"
+    assert inp["setCategoryAction"] is None
+
+
+def test_update_token_stable_sensitive_and_distinct_from_create_tokens():
+    from financial_mcp.writes import compute_rule_update_token, compute_rule_token, compute_category_rule_token
+    t = compute_rule_update_token("rule9", "contains", "ubs", "cat7", None)
+    assert t == compute_rule_update_token("rule9", "contains", "ubs", "cat7", None)  # stable
+    assert t != compute_rule_update_token("rule9", "contains", "ubsX", "cat7", None)  # value
+    assert t != compute_rule_update_token("ruleX", "contains", "ubs", "cat7", None)  # id
+    assert t != compute_rule_update_token("rule9", "contains", "ubs", "cat8", None)  # category
+    assert t != compute_rule_update_token("rule9", "eq", "ubs", "cat7", None)        # operator
+    # distinct namespace from the create tokens
+    assert t != compute_rule_token("ubs", "cat7")
+    assert t != compute_category_rule_token("ubs", "cat7")
+
+
+def test_is_simple_accepts_the_three_simple_shapes():
+    from financial_mcp.writes import is_simple_rule, rule_complexity
+    cat_only = {"value": "ubs", "set_category_id": "cat7", "set_merchant": None}
+    merch_only = {"value": "amzn", "set_category_id": None, "set_merchant": "Amazon"}
+    both = {"value": "ubs", "set_category_id": "cat7", "set_merchant": "UBS Arena"}
+    for r in (cat_only, merch_only, both):
+        assert is_simple_rule(r) is True
+        assert rule_complexity(r) == []
+
+
+def test_rule_complexity_flags_each_complex_component():
+    from financial_mcp.writes import rule_complexity
+    base = {"value": "ubs", "set_category_id": "cat7", "set_merchant": None}
+    assert "matches on amount" in rule_complexity({**base, "has_amount_criteria": True})
+    assert "matches on original-statement text" in rule_complexity(
+        {**base, "has_original_statement_criteria": True})
+    assert "matches on the original statement" in rule_complexity(
+        {**base, "uses_original_statement": True})
+    assert "matches on category" in rule_complexity({**base, "category_ids": ["c1"]})
+    assert "scoped to specific accounts" in rule_complexity({**base, "account_ids": ["a1"]})
+    assert "adds tags" in rule_complexity({**base, "has_add_tags": True})
+    assert "links a goal" in rule_complexity({**base, "has_link_goal": True})
+    assert "links a savings goal" in rule_complexity({**base, "has_link_savings_goal": True})
+    assert "sets review status" in rule_complexity({**base, "review_status_action": "reviewed"})
+    assert "sends a notification" in rule_complexity({**base, "send_notification": True})
+    assert "unassigns needs-review" in rule_complexity({**base, "unassign_needs_review": True})
+    assert "matches on a specific merchant" in rule_complexity({**base, "has_merchant_criteria": True})
+    assert "splits transactions" in rule_complexity({**base, "has_split_action": True})
+
+
+def test_rule_complexity_flags_missing_merchant_criterion_and_missing_action():
+    from financial_mcp.writes import rule_complexity
+    assert "no merchant-name criterion" in rule_complexity(
+        {"value": None, "set_category_id": "cat7"})
+    assert "no set-category or set-merchant action" in rule_complexity(
+        {"value": "ubs", "set_category_id": None, "set_merchant": None})

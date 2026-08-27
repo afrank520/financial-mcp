@@ -99,6 +99,9 @@ class FakeAdapter(MonarchAdapter):
     def delete_transaction_rule(self, rule_id):
         return False
 
+    def update_transaction_rule(self, rule_id, operator, value, set_category_id, set_merchant):
+        return False
+
     def source_name(self):
         return "fake"
 
@@ -1394,6 +1397,9 @@ class CategoryCrudAdapter(MonarchAdapter):
     def delete_transaction_rule(self, rule_id):
         return False
 
+    def update_transaction_rule(self, rule_id, operator, value, set_category_id, set_merchant):
+        return False
+
     def source_name(self):
         return "fake"
 
@@ -2097,3 +2103,160 @@ def test_undo_last_reverses_create_category_rule(tmp_path):
     result = undo()
     assert result["reversed"] >= 1
     assert rule_id not in [r["id"] for r in svc._adapter.rules]
+
+
+class UpdateRuleAdapter(BulkRecatAdapter):
+    """In-memory rules store with the enriched read shape + update support."""
+
+    def __init__(self):
+        self.rules: list[dict] = []
+
+    def get_categories(self):
+        from financial_mcp.monarch.models import Category
+        return [
+            Category(id="c7", name="Entertainment", group="Lifestyle"),
+            Category(id="c8", name="Shopping", group="Lifestyle"),
+        ]
+
+    def get_transaction_rules(self):
+        return [dict(r) for r in self.rules]
+
+    def update_transaction_rule(self, rule_id, operator, value, set_category_id, set_merchant):
+        name_by_id = {"c7": "Entertainment", "c8": "Shopping"}
+        for r in self.rules:
+            if r["id"] == rule_id:
+                r["operator"] = operator
+                r["value"] = value
+                r["set_category_id"] = set_category_id
+                r["set_category"] = name_by_id.get(set_category_id)
+                r["set_merchant"] = set_merchant
+                return True
+        return False
+
+    def delete_transaction_rule(self, rule_id):
+        n = len(self.rules)
+        self.rules = [r for r in self.rules if r["id"] != rule_id]
+        return len(self.rules) < n
+
+
+def _simple_cat_rule():
+    return {"id": "r1", "operator": "contains", "value": "ubs", "order": 0,
+            "set_merchant": None, "set_category": "Entertainment", "set_category_id": "c7"}
+
+
+def test_update_rule_off_mode_refuses(tmp_path):
+    ad = UpdateRuleAdapter(); ad.rules.append(_simple_cat_rule())
+    svc, journal, server = _rule_server(tmp_path, adapter=ad, write_mode="off")
+    out = _tool(server, "update_transaction_rule")("r1", match_text="ubs arena")
+    assert "error" in out
+    assert ad.rules[0]["value"] == "ubs"  # unchanged
+
+
+def test_update_rule_not_found_refuses(tmp_path):
+    ad = UpdateRuleAdapter()
+    svc, journal, server = _rule_server(tmp_path, adapter=ad, write_mode="safe")
+    out = _tool(server, "update_transaction_rule")("nope", match_text="x")
+    assert "error" in out and "nope" in out["error"]
+
+
+def test_update_rule_refuses_complex_rule(tmp_path):
+    ad = UpdateRuleAdapter()
+    ad.rules.append({**_simple_cat_rule(), "has_amount_criteria": True})
+    svc, journal, server = _rule_server(tmp_path, adapter=ad, write_mode="safe")
+    out = _tool(server, "update_transaction_rule")("r1", match_text="ubs arena")
+    assert "refused" in out and "amount" in out["refused"]
+    assert ad.rules[0]["value"] == "ubs"
+
+
+def test_update_rule_no_op_refuses(tmp_path):
+    ad = UpdateRuleAdapter(); ad.rules.append(_simple_cat_rule())
+    svc, journal, server = _rule_server(tmp_path, adapter=ad, write_mode="safe")
+    out = _tool(server, "update_transaction_rule")("r1", match_text="ubs")  # same value
+    assert "refused" in out
+
+
+def test_update_rule_unresolvable_category_refuses(tmp_path):
+    ad = UpdateRuleAdapter(); ad.rules.append(_simple_cat_rule())
+    svc, journal, server = _rule_server(tmp_path, adapter=ad, write_mode="safe")
+    out = _tool(server, "update_transaction_rule")("r1", set_category="Nonexistent")
+    assert "error" in out
+    assert ad.rules[0]["value"] == "ubs"
+
+
+def test_update_rule_dry_run_then_confirm(tmp_path):
+    ad = UpdateRuleAdapter(); ad.rules.append(_simple_cat_rule())
+    svc, journal, server = _rule_server(tmp_path, adapter=ad, write_mode="safe")
+    tool = _tool(server, "update_transaction_rule")
+
+    preview = tool("r1", match_text="ubs arena")
+    assert preview["dry_run"] is True
+    assert preview["before"]["match"] == "ubs"
+    assert preview["after"]["match"] == "ubs arena"
+    assert "future" in preview["message"].lower()
+    assert "confirm_token" in preview
+    assert ad.rules[0]["value"] == "ubs"  # nothing changed on preview
+
+    out = tool("r1", match_text="ubs arena", confirm_token=preview["confirm_token"])
+    assert out["updated"] is True
+    assert ad.rules[0]["value"] == "ubs arena"
+    assert journal.last_undoable_batch() is not None
+
+
+def test_update_rule_change_category_full_mode(tmp_path):
+    ad = UpdateRuleAdapter(); ad.rules.append(_simple_cat_rule())
+    svc, journal, server = _rule_server(tmp_path, adapter=ad, write_mode="full")
+    out = _tool(server, "update_transaction_rule")("r1", set_category="Shopping")
+    assert out["updated"] is True
+    assert out["after"]["category"] == "Shopping"
+    assert ad.rules[0]["set_category_id"] == "c8"
+
+
+def test_update_rule_failed_write_reports_and_does_not_journal(tmp_path):
+    class _FailAdapter(UpdateRuleAdapter):
+        def update_transaction_rule(self, *a, **k):
+            return False
+    ad = _FailAdapter(); ad.rules.append(_simple_cat_rule())
+    svc, journal, server = _rule_server(tmp_path, adapter=ad, write_mode="full")
+    out = _tool(server, "update_transaction_rule")("r1", match_text="ubs arena")
+    assert out["updated"] is False
+    assert journal.last_undoable_batch() is None  # nothing journaled
+
+
+def test_update_rule_undo_round_trip(tmp_path):
+    ad = UpdateRuleAdapter(); ad.rules.append(_simple_cat_rule())
+    svc, journal, server = _rule_server(tmp_path, adapter=ad, write_mode="full")
+    update = _tool(server, "update_transaction_rule")
+    undo = _tool(server, "undo_last")
+
+    update("r1", match_text="ubs arena", set_category="Shopping")
+    assert ad.rules[0]["value"] == "ubs arena"
+    assert ad.rules[0]["set_category_id"] == "c8"
+
+    out = undo()
+    assert out["reversed"] == 1 and out["failed"] == 0
+    # restored to the original state
+    assert ad.rules[0]["value"] == "ubs"
+    assert ad.rules[0]["set_category_id"] == "c7"
+
+
+def test_update_rule_undo_failure_stays_retryable(tmp_path):
+    class _FailOnUndoAdapter(UpdateRuleAdapter):
+        def __init__(self):
+            super().__init__()
+            self._allow = True
+        def update_transaction_rule(self, rule_id, operator, value, set_category_id, set_merchant):
+            if not self._allow:      # the compensating edit (undo) fails
+                return False
+            return super().update_transaction_rule(
+                rule_id, operator, value, set_category_id, set_merchant)
+
+    ad = _FailOnUndoAdapter(); ad.rules.append(_simple_cat_rule())
+    svc, journal, server = _rule_server(tmp_path, adapter=ad, write_mode="full")
+    _tool(server, "update_transaction_rule")("r1", match_text="ubs arena")
+    ad._allow = False
+
+    out = _tool(server, "undo_last")()
+    assert out["reversed"] == 0 and out["failed"] == 1
+    assert out["failures"][0]["rule_id"] == "r1"
+    # still retryable: batch not closed
+    assert journal.last_undoable_batch() is not None
