@@ -15,6 +15,14 @@ never leaves your machine except to talk to Monarch's own API.
 > short copy-paste path for Claude Code). The rest of this README is the overview;
 > [`docs/INSTALL.md`](docs/INSTALL.md) is the concise technical reference.
 
+> 💻 **This runs on your computer — so it works where your computer is.** The
+> server runs locally on the Mac you install it on, and your Monarch session is
+> stored in a secured file on that Mac. Claude can use these tools **only on that
+> computer, and only while it's running.** That means the **Claude mobile app
+> can't use them** — your phone can't start or reach a program on your Mac.
+> Keeping everything local is the whole point (your data never leaves your
+> machine), so there's intentionally no hosted version to connect to remotely.
+
 ## What it does
 
 **See your money.** Ask Claude questions and get penny-accurate answers computed

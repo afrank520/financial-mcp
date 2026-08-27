@@ -252,8 +252,9 @@ two paths from Step A1:
 
 If Claude comes back with your real accounts and balances, 🎉 **you're done.**
 
-Jump to **[Try asking it things](#try-asking-it-things)** for ideas, or
-**[If something goes wrong](#if-something-goes-wrong)** if it didn't work.
+Jump to **[Your first conversation](#your-first-conversation)** for what to try
+and what to expect, or **[If something goes wrong](#if-something-goes-wrong)** if
+it didn't work.
 
 ---
 
@@ -286,9 +287,48 @@ be found.
 
 ---
 
-## Try asking it things
+## Your first conversation
 
-Once it's working, natural-language questions all work:
+Once Claude is answering with your real data, here's how to get oriented — plus a
+few things to know so you don't second-guess whether it's working. (These are the
+exact things that made *me* wonder the first time.)
+
+**Start by asking what it can do.** Paste this into a new chat:
+
+> Using the Monarch MCP server, give me a short menu of what you can help me do
+> with my financial data — the kinds of questions I can ask, and the actions you
+> can take. Then wait for me to pick one.
+
+**Then try one or two small questions** — these come back quickly:
+
+> What are my current account balances?
+
+> What's my net worth right now?
+
+### A few things that are completely normal
+
+- **⏳ Big questions can take 2–4 minutes.** If you ask something that spans a lot
+  of history — every transaction this year, spending across many months, all your
+  investment holdings — the server has to pull and crunch a large number of
+  records on your Mac. On large datasets that can take **two to four minutes.** It
+  has *not* frozen; it's working. Narrow questions (one month, one category,
+  current balances) come back fast.
+
+- **✅ "Approve" / "Allow" pop-ups are the safeguards working.** The first time
+  Claude uses one of these tools, the app asks you to **approve** it. That's not
+  an error — it's the safety design doing its job: nothing touches your Monarch
+  data until you say yes. Go ahead and approve (you can allow it for the whole
+  chat). Later, if you turn on the cleanup features, any change that actually
+  *edits* your data asks for a second, explicit confirmation on top of this —
+  again, on purpose.
+
+- **💻 It only works on this Mac, while it's running.** The server runs locally
+  and your Monarch session lives in a secured file on this computer, so Claude can
+  use these tools only here. The **Claude mobile app can't use them** — your phone
+  can't reach a program running on your Mac. That's by design: your financial data
+  never leaves your machine.
+
+### More to ask once you're comfortable
 
 - "What's my net worth, and how has it changed over the last 6 months?"
 - "How much did I spend on groceries last month?"
