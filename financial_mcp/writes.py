@@ -230,3 +230,86 @@ def _category_rule_input(contains: str, category_id: str) -> dict:
 def compute_category_rule_token(contains: str, category_id: str) -> str:
     key = contains + "=>cat:" + category_id
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+
+def _update_rule_input(
+    rule_id: str, operator: str, value: str,
+    set_category_id: str | None, set_merchant: str | None,
+) -> dict:
+    """Build the UpdateTransactionRuleInput for a FUTURE-ONLY simple rule edit.
+
+    This is the create input (mirrors `_rename_rule_input`/`_category_rule_input`)
+    PLUS `id`, with two differences: the match `operator` is a parameter (preserving
+    the rule's existing operator — NOT hardcoded "contains"), and both set-actions are
+    populated from the caller's desired end-state. Every other criterion/action is sent
+    explicit-null: correct because the tool only edits rules verified simple (those
+    fields were already null), and it matches the DevTools-captured full-replacement payload.
+    """
+    return {
+        "id": rule_id,
+        "accountIds": None,
+        "categoryIds": None,
+        "amountCriteria": None,
+        "merchantCriteria": None,
+        "originalStatementCriteria": None,
+        "merchantCriteriaUseOriginalStatement": False,
+        "merchantNameCriteria": [{"operator": operator, "value": value}],
+        "setMerchantAction": set_merchant,
+        "applyToExistingTransactions": False,
+        "addTagsAction": None,
+        "linkGoalAction": None,
+        "linkSavingsGoalAction": None,
+        "reviewStatusAction": None,
+        "setCategoryAction": set_category_id,
+        "splitTransactionsAction": None,
+    }
+
+
+def compute_rule_update_token(
+    rule_id: str, operator: str, value: str,
+    set_category_id: str | None, set_merchant: str | None,
+) -> str:
+    """Content hash of an edit's exact end-state, in a namespace distinct from the
+    create tokens so a create preview can't be replayed as an update confirm."""
+    key = f"{rule_id}#upd#{operator}:{value}=>cat:{set_category_id}|mer:{set_merchant}"
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+
+def rule_complexity(rule: dict) -> list[str]:
+    """Reasons a parsed rule is NOT simple (empty list == simple, safe to edit).
+
+    Reads the enriched parse produced by the adapter with `.get()` + falsy defaults,
+    so a minimal rule dict (id/operator/value/set_category_id/set_merchant) is simple.
+    """
+    reasons: list[str] = []
+    if not rule.get("value"):
+        reasons.append("no merchant-name criterion")
+    if not (rule.get("set_category_id") or rule.get("set_merchant")):
+        reasons.append("no set-category or set-merchant action")
+    if rule.get("uses_original_statement"):
+        reasons.append("matches on the original statement")
+    if rule.get("category_ids"):
+        reasons.append("matches on category")
+    if rule.get("account_ids"):
+        reasons.append("scoped to specific accounts")
+    if rule.get("has_amount_criteria"):
+        reasons.append("matches on amount")
+    if rule.get("has_original_statement_criteria"):
+        reasons.append("matches on original-statement text")
+    if rule.get("review_status_action"):
+        reasons.append("sets review status")
+    if rule.get("send_notification"):
+        reasons.append("sends a notification")
+    if rule.get("unassign_needs_review"):
+        reasons.append("unassigns needs-review")
+    if rule.get("has_add_tags"):
+        reasons.append("adds tags")
+    if rule.get("has_link_goal"):
+        reasons.append("links a goal")
+    if rule.get("has_link_savings_goal"):
+        reasons.append("links a savings goal")
+    return reasons
+
+
+def is_simple_rule(rule: dict) -> bool:
+    return not rule_complexity(rule)
