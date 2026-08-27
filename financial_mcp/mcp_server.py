@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 import uuid
 from decimal import Decimal
 
@@ -359,6 +360,109 @@ def build_server(
                     "set_category": target.name, "applied_to_existing": False,
                     "existing_matches": existing,
                     "undo_hint": "call undo_last to delete this rule"}
+
+        return _guard(_run)
+
+    def _rule_label(value, cat_name, merchant):
+        parts = [f"contains '{value}'"]
+        if cat_name:
+            parts.append(f"cat '{cat_name}'")
+        if merchant:
+            parts.append(f"→ '{merchant}'")
+        return " ".join(parts)
+
+    @server.tool()
+    def update_transaction_rule(
+        rule_id: str, match_text: str | None = None,
+        set_category: str | None = None, set_merchant: str | None = None,
+        confirm_token: str | None = None,
+    ) -> dict:
+        """Edit an EXISTING Monarch transaction rule in place (its id and order are
+        preserved). You can change any of: the match text (`match_text`), the category
+        it sets (`set_category`, an existing category name), and the merchant it renames
+        to (`set_merchant`). Only rules that match on merchant name and do nothing but
+        set a category and/or merchant can be edited — a rule that also matches on amount,
+        original statement, category, or account, or that adds tags / links goals / etc.,
+        is refused (edit it in Monarch → Settings → Rules). Future-only: the edit changes
+        how the rule labels transactions imported from now on; it does NOT retroactively
+        recategorize or rename past transactions. In 'safe' mode this is two-phase: call
+        without confirm_token to preview (nothing changes) and get a confirm_token, then
+        call again with it to apply. In 'full' mode it applies directly. Reversible via
+        undo_last (a compensating edit back to the old values).
+        """
+        disabled = _writes_enabled()
+        if disabled:
+            return {"error": disabled}
+        if not rule_id or not rule_id.strip():
+            return {"error": "rule_id must be a non-empty rule id"}
+
+        def _run():
+            rule = next((r for r in svc.transaction_rules() if r.get("id") == rule_id), None)
+            if rule is None:
+                return {"error": f"no rule with id {rule_id}"}
+            reasons = writes.rule_complexity(rule)
+            if reasons:
+                return {"refused": ("this rule is too complex to edit safely — "
+                                    + "; ".join(reasons)
+                                    + ". Edit it in Monarch → Settings → Rules."),
+                        "rule_id": rule_id}
+
+            operator = rule.get("operator")
+            cur_value = rule.get("value")
+            cur_cat_id = rule.get("set_category_id")
+            cur_cat_name = rule.get("set_category")
+            cur_merchant = rule.get("set_merchant")
+
+            new_value = match_text.strip() if (match_text and match_text.strip()) else cur_value
+            if set_category is not None and set_category.strip():
+                try:
+                    target = writes.resolve_category(set_category, svc.categories())
+                except writes.WriteError as exc:
+                    return {"error": str(exc)}
+                new_cat_id, new_cat_name = target.id, target.name
+            else:
+                new_cat_id, new_cat_name = cur_cat_id, cur_cat_name
+            new_merchant = (set_merchant.strip()
+                            if (set_merchant and set_merchant.strip()) else cur_merchant)
+
+            if (new_value == cur_value and new_cat_id == cur_cat_id
+                    and new_merchant == cur_merchant):
+                return {"refused": "that edit changes nothing", "rule_id": rule_id}
+
+            before = {"match": cur_value, "category": cur_cat_name, "rename_to": cur_merchant}
+            after = {"match": new_value, "category": new_cat_name, "rename_to": new_merchant}
+            token = writes.compute_rule_update_token(
+                rule_id, operator, new_value, new_cat_id, new_merchant)
+
+            if write_mode == "safe" and (confirm_token is None or confirm_token != token):
+                return {
+                    "dry_run": True, "rule_id": rule_id, "before": before, "after": after,
+                    "message": ("This edits an existing rule in place (its id and order are "
+                                "preserved) and applies to FUTURE transactions only — it will "
+                                "NOT recategorize or rename past transactions. Confirm to apply "
+                                "the edit."),
+                    "confirm_token": token, "mode": write_mode,
+                }
+
+            ok = svc.update_transaction_rule(
+                rule_id, operator, new_value, new_cat_id, new_merchant)
+            if not ok:
+                return {"updated": False,
+                        "reason": "Monarch did not apply the edit (re-read did not reflect it)"}
+
+            old_state = json.dumps({"operator": operator, "value": cur_value,
+                                    "set_category_id": cur_cat_id, "set_merchant": cur_merchant})
+            new_state = json.dumps({"operator": operator, "value": new_value,
+                                    "set_category_id": new_cat_id, "set_merchant": new_merchant})
+            label_old = _rule_label(cur_value, cur_cat_name, cur_merchant)
+            label_new = _rule_label(new_value, new_cat_name, new_merchant)
+            batch_id = uuid.uuid4().hex
+            journal.record(batch_id, "update_rule", rule_id, old_state, new_state,
+                           label_old, label_new)
+            journal.mark_succeeded(batch_id, rule_id)
+            return {"updated": True, "rule_id": rule_id, "before": before, "after": after,
+                    "applied_to_existing": False, "batch_id": batch_id,
+                    "undo_hint": "call undo_last to revert this edit"}
 
         return _guard(_run)
 
