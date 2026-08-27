@@ -413,13 +413,21 @@ class CommunityAdapter(MonarchAdapter):
         data = self._run(self._transport("GetTransactionRules", GET_TRANSACTION_RULES, {}))
         out = []
         for r in data.get("transactionRules") or []:
-            crit = (r.get("merchantCriteria") or [{}])[0] if r.get("merchantCriteria") else {}
+            # The merchant-NAME match ("name contains X" — what our create/update
+            # tools write) lives in merchantNameCriteria (a list), NOT merchantCriteria.
+            # merchantCriteria is the separate curated-merchant match; when present it
+            # makes a rule non-simple (see has_merchant_criteria + rule_complexity),
+            # because _update_rule_input sends it null and a full-replacement edit
+            # would silently wipe it.
+            name_crit_list = r.get("merchantNameCriteria") or []
+            crit = name_crit_list[0] if name_crit_list else {}
             sm = r.get("setMerchantAction") or {}
             sc = r.get("setCategoryAction") or {}
             out.append({
                 "id": r.get("id"),
                 "operator": crit.get("operator"),
                 "value": crit.get("value"),
+                "has_merchant_criteria": bool(r.get("merchantCriteria")),
                 "set_merchant": sm.get("name"),
                 "set_category": sc.get("name"),
                 "set_category_id": sc.get("id"),

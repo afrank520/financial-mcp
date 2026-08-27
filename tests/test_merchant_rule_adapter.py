@@ -116,7 +116,7 @@ def test_get_rules_parse_surfaces_enriched_fields():
     ad = _seq_adapter([
         {"transactionRules": [{
             "id": "r1", "order": 3,
-            "merchantCriteria": [{"operator": "eq", "value": "ubs arena"}],
+            "merchantNameCriteria": [{"operator": "eq", "value": "ubs arena"}],
             "merchantCriteriaUseOriginalStatement": False,
             "categoryIds": None, "accountIds": None,
             "amountCriteria": None, "originalStatementCriteria": None,
@@ -133,6 +133,24 @@ def test_get_rules_parse_surfaces_enriched_fields():
     assert r["set_merchant"] == "UBS Arena"
     assert r["set_category"] == "Entertainment" and r["set_category_id"] == "c7"
     assert r["has_amount_criteria"] is False and r["category_ids"] == []
+    assert r["has_merchant_criteria"] is False
+
+
+def test_get_rules_parse_reads_name_criterion_and_flags_curated_merchant():
+    # A rule that matches on the CURATED merchant (merchantCriteria) rather than the
+    # merchant NAME: the name match is absent (value None) and has_merchant_criteria
+    # is True so rule_complexity will fail-close it (full-replacement would wipe it).
+    ad = _seq_adapter([
+        {"transactionRules": [{
+            "id": "r1",
+            "merchantCriteria": [{"operator": "eq", "value": "m-123"}],
+            "merchantNameCriteria": None,
+            "setMerchantAction": None,
+            "setCategoryAction": {"id": "c7", "name": "Entertainment"}}]},
+    ])
+    (r,) = ad.get_transaction_rules()
+    assert r["value"] is None and r["operator"] is None
+    assert r["has_merchant_criteria"] is True
 
 
 def test_update_rule_true_when_reread_matches():
@@ -140,7 +158,7 @@ def test_update_rule_true_when_reread_matches():
         {"updateTransactionRuleV2": {"errors": []}},                     # mutation
         {"transactionRules": [{                                          # re-read reflects it
             "id": "r1",
-            "merchantCriteria": [{"operator": "contains", "value": "ubs"}],
+            "merchantNameCriteria": [{"operator": "contains", "value": "ubs"}],
             "setMerchantAction": None,
             "setCategoryAction": {"id": "c7", "name": "Entertainment"}}]},
     ])
@@ -159,7 +177,7 @@ def test_update_rule_false_when_reread_does_not_match():
         {"updateTransactionRuleV2": {"errors": []}},
         {"transactionRules": [{                                          # value did not change
             "id": "r1",
-            "merchantCriteria": [{"operator": "contains", "value": "OLD"}],
+            "merchantNameCriteria": [{"operator": "contains", "value": "OLD"}],
             "setMerchantAction": None,
             "setCategoryAction": {"id": "c7", "name": "Entertainment"}}]},
     ])

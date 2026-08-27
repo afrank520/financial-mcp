@@ -284,6 +284,10 @@ def rule_complexity(rule: dict) -> list[str]:
     reasons: list[str] = []
     if not rule.get("value"):
         reasons.append("no merchant-name criterion")
+    if rule.get("has_merchant_criteria"):
+        # Matches on a specific curated merchant (merchantCriteria), a criterion the
+        # full-replacement update sends null and would therefore wipe — fail-closed.
+        reasons.append("matches on a specific merchant")
     if not (rule.get("set_category_id") or rule.get("set_merchant")):
         reasons.append("no set-category or set-merchant action")
     if rule.get("uses_original_statement"):

@@ -303,6 +303,7 @@ def test_rule_complexity_flags_each_complex_component():
     assert "sets review status" in rule_complexity({**base, "review_status_action": "reviewed"})
     assert "sends a notification" in rule_complexity({**base, "send_notification": True})
     assert "unassigns needs-review" in rule_complexity({**base, "unassign_needs_review": True})
+    assert "matches on a specific merchant" in rule_complexity({**base, "has_merchant_criteria": True})
 
 
 def test_rule_complexity_flags_missing_merchant_criterion_and_missing_action():

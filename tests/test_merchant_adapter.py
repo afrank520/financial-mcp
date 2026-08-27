@@ -28,10 +28,12 @@ def test_get_transaction_rules_flattens_shape(monkeypatch):
     # for the full contract). This test predates that change; updated to the enriched
     # shape rather than removed, since it still usefully covers the two-rule
     # (rename-rule vs category-rule) flattening case.
+    # The merchant-NAME match is read from merchantNameCriteria (a list), the field
+    # our create/update tools write to — NOT merchantCriteria (curated-merchant match).
     ad = _fake_adapter(monkeypatch, {"transactionRules": [
-        {"id": "r1", "merchantCriteria": [{"operator": "contains", "value": "amzn"}],
+        {"id": "r1", "merchantNameCriteria": [{"operator": "contains", "value": "amzn"}],
          "setMerchantAction": {"id": "m9", "name": "Amazon"}, "setCategoryAction": None},
-        {"id": "r2", "merchantCriteria": [], "setMerchantAction": None,
+        {"id": "r2", "merchantNameCriteria": [], "setMerchantAction": None,
          "setCategoryAction": {"id": "c1", "name": "Food"}},
     ]})
     rules = ad.get_transaction_rules()
@@ -40,6 +42,7 @@ def test_get_transaction_rules_flattens_shape(monkeypatch):
         "has_amount_criteria": False, "has_original_statement_criteria": False,
         "review_status_action": None, "send_notification": False, "unassign_needs_review": False,
         "has_add_tags": False, "has_link_goal": False, "has_link_savings_goal": False,
+        "has_merchant_criteria": False,
     }
     assert rules[0] == {"id": "r1", "operator": "contains", "value": "amzn",
                         "set_merchant": "Amazon", "set_category": None, "set_category_id": None,

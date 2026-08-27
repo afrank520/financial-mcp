@@ -345,6 +345,7 @@ GET_TRANSACTION_RULES = """
       id
       order
       merchantCriteria { operator value __typename }
+      merchantNameCriteria { operator value __typename }
       merchantCriteriaUseOriginalStatement
       categoryIds
       accountIds
