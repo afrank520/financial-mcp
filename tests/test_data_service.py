@@ -483,3 +483,19 @@ def test_delete_transaction_rule_passthrough(tmp_path):
     svc.create_merchant_rule("AMZN", "Amazon")
     assert svc.delete_transaction_rule("r1") is True
     assert svc.delete_transaction_rule("nope") is False
+
+
+def test_update_transaction_rule_passthrough(tmp_path):
+    class _UpdAdapter(FakeAdapter):
+        def __init__(self):
+            self.calls = []
+        def update_transaction_rule(self, rule_id, operator, value, set_category_id, set_merchant):
+            self.calls.append((rule_id, operator, value, set_category_id, set_merchant))
+            return True
+
+    clock = FakeClock()
+    adapter = _UpdAdapter()
+    svc, _ = _svc(tmp_path, clock, adapter)
+
+    assert svc.update_transaction_rule("r1", "contains", "ubs", "c7", None) is True
+    assert adapter.calls == [("r1", "contains", "ubs", "c7", None)]
