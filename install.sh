@@ -91,6 +91,15 @@ if [ "$FRESH" -eq 1 ] && [ -d "$VENV" ]; then
   rm -rf "$VENV"
   ok "Removed the old .venv (--fresh); your config.yaml and Monarch login are untouched"
 fi
+# A .venv left over from a failed attempt can carry an out-of-range Python (e.g.
+# a 3.14 from before 3.12 was installed). Reusing it would repeat the same
+# from-source build that just failed — the version check above only covers the
+# system Python, not what's already baked into the venv. Detect a stale venv and
+# rebuild it with the good interpreter instead of blindly reusing it.
+if [ -x "$PY" ] && ! "$PY" -c 'import sys; sys.exit(0 if (3,12) <= sys.version_info < (3,14) else 1)' 2>/dev/null; then
+  warn "Existing .venv uses $("$PY" --version 2>&1), which won't work here — rebuilding it with $("$PYBIN" --version)."
+  rm -rf "$VENV"
+fi
 if [ -x "$PY" ]; then
   ok "Reusing existing .venv"
 else
