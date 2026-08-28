@@ -27,8 +27,10 @@ this is just the map so you know where you're headed:
 2. **Download the code** as a ZIP from the repo *(Step 2)*.
 3. **Unzip it and move the folder** somewhere you'll remember, like Documents
    *(Step 2)*.
-4. **Point Terminal at that folder** — type `cd` and a space, drag the folder onto
-   the Terminal window, press Enter *(Step 3)*.
+4. **Open a Terminal pointed at that folder** — easiest way: in Finder,
+   right-click the folder → **Services → New Terminal at Folder**. (Don't see that
+   option? Type `cd` and a space in Terminal, drag the folder onto the window, and
+   press Enter.) *(Step 3 has the details.)*
 5. **Run the installer:**
 
    ```bash
@@ -100,19 +102,27 @@ have.
 > Prefer git? `git clone https://github.com/afrank520/financial-mcp.git` instead
 > of steps 1–3. The rest is identical.
 
-### Step 3: Point Terminal at the folder
+### Step 3: Open a Terminal pointed at the folder
 
-Terminal always works in one folder at a time. Right now it's pointed at your
-home folder, so you need to point it at the project folder you just moved. Here's
-a trick so you don't have to type the location by hand:
+Every command you'll run needs to happen *inside* the project folder you just
+moved. The easiest way to get there:
 
-1. In Terminal, type `cd` and then a **space** — the letters **c**, **d**, space.
-   (`cd` is just short for "change to this folder.") Don't press Enter yet.
-2. **Drag the project folder** from Finder and **drop it onto the Terminal
+1. In **Finder**, find the project folder and **right-click** it (or Control-click
+   if you don't have a right mouse button).
+2. In the menu, go to **Services → New Terminal at Folder**.
+3. A Terminal window opens already pointed at that folder. That's it for this step.
+
+**Don't see "New Terminal at Folder"?** It's just switched off on some Macs — no
+problem, use this instead (it always works):
+
+1. Open the **Terminal** app (`Cmd + Space`, type `Terminal`, press `Enter`).
+2. Type `cd` and then a **space** — the letters **c**, **d**, space. (`cd` is just
+   short for "change to this folder.") Don't press Enter yet.
+3. **Drag the project folder** from Finder and **drop it onto the Terminal
    window.** Terminal fills in the location for you automatically.
-3. Now press `Enter`.
+4. Now press `Enter`.
 
-To check it worked, type this and press Enter:
+Either way, check it worked — type this and press Enter:
 
 ```bash
 ls
