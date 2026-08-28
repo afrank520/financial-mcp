@@ -1,7 +1,8 @@
 # Install — Monarch MCP
 
 Runs locally on your Mac and connects the Claude Desktop app to your Monarch
-Money data. Requires Python 3.12+.
+Money data. Requires Python 3.12 or 3.13 — avoid the newest release (e.g. 3.14),
+whose prebuilt dependency wheels may not exist yet, forcing a from-source build.
 
 > **Not a developer?** Follow [`../QUICKSTART.md`](../QUICKSTART.md) instead — a
 > step-by-step, zero-to-running guide. This file is the concise reference.

@@ -50,12 +50,39 @@ for arg in "$@"; do
   esac
 done
 
-# ── 1. Python 3.12+ ──────────────────────────────────────────────────────────
+# ── 1. Python 3.12 / 3.13 ────────────────────────────────────────────────────
+# Require a mainstream Python (3.12 or 3.13). The newest release (3.14+) is
+# deliberately rejected: some dependencies (e.g. cryptography, pulled in for
+# secure login) don't publish prebuilt wheels for it yet, so pip falls back to
+# compiling from source — which needs a Rust + OpenSSL toolchain a normal user
+# won't have, and the install dies with a wall of build errors. Bump the upper
+# bound once wheels catch up.
 say "1/7  Checking Python…"
-PYBIN="$(command -v python3 || true)"
-[ -n "$PYBIN" ] || die "Python 3 not found. Install it from https://www.python.org/downloads/ then re-run."
-"$PYBIN" -c 'import sys; sys.exit(0 if sys.version_info >= (3,12) else 1)' \
-  || die "Python 3.12+ required (found $("$PYBIN" --version)). Get the latest from https://www.python.org/downloads/ and re-run."
+
+# Prefer a known-good interpreter even if `python3` points at something newer,
+# so someone who installs 3.12 alongside 3.14 gets picked up automatically.
+PYBIN=""
+for cand in python3.12 python3.13 python3; do
+  p="$(command -v "$cand" || true)"
+  [ -n "$p" ] || continue
+  if "$p" -c 'import sys; sys.exit(0 if (3,12) <= sys.version_info < (3,14) else 1)' 2>/dev/null; then
+    PYBIN="$p"; break
+  fi
+done
+
+PY312_HELP="Install Python 3.12 from https://www.python.org/downloads/ — scroll to \"Looking for a specific release?\", pick the latest 3.12.x, and download the macOS 64-bit universal2 installer. Then re-run this."
+if [ -z "$PYBIN" ]; then
+  p="$(command -v python3 || true)"
+  if [ -z "$p" ]; then
+    die "Python isn't installed. $PY312_HELP"
+  fi
+  VER="$("$p" --version 2>&1)"
+  if "$p" -c 'import sys; sys.exit(0 if sys.version_info < (3,12) else 1)' 2>/dev/null; then
+    die "$VER is too old (need 3.12+). $PY312_HELP"
+  else
+    die "$VER is too new for this installer — some parts have no ready-made packages for it yet, so the install would fail trying to compile them. $PY312_HELP"
+  fi
+fi
 ok "$("$PYBIN" --version) at $PYBIN"
 
 # ── 2. Virtual environment ───────────────────────────────────────────────────

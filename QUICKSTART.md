@@ -23,7 +23,8 @@ same for both), then jump to your path.
 Here's the entire thing at a glance. Each step is explained in full detail below —
 this is just the map so you know where you're headed:
 
-1. **Check you have Python 3.12 or newer** *(Step 1)*.
+1. **Install Python 3.12** — the reliable version. Avoid the newest release
+   (like 3.14); it's too new and breaks the install *(Step 1)*.
 2. **Download the code** as a ZIP from the repo *(Step 2)*.
 3. **Unzip it and move the folder** somewhere you'll remember, like Documents
    *(Step 2)*.
@@ -45,7 +46,8 @@ this is just the map so you know where you're headed:
 That's the fast path. Two things worth knowing before you start:
 
 - The installer **also checks Python itself** and stops with a clear message if
-  it's too old — so step 1 above is just an early heads-up, not strictly required.
+  your version is too old *or too new* — so step 1 above is just an early
+  heads-up, not strictly required.
 - When it asks **"Add this to Claude Desktop automatically?"**, the default is
   **No** — you have to type `y` and press Enter. If you just press Enter, it skips
   that step and you'll have to connect Claude by hand later (Path A2). **Type `y`**
@@ -67,26 +69,35 @@ Follow **Part 1** below — it covers the same ground manually. 👇
 
 ## Part 1 — One-time setup (do this once)
 
-### Step 1: Make sure you have Python 3.12 or newer
+### Step 1: Install Python 3.12
 
-This tool is written in Python, a free programming language your Mac may already
-have.
+This tool is written in Python, a free programming language. It needs a
+**mainstream** version — **Python 3.12** is the reliable choice. (The very newest
+release, like 3.14, is actually *too* new: some parts of the tool don't have
+ready-made packages for it yet, so the install fails trying to build them from
+scratch. Stick with 3.12.)
 
 1. Open the **Terminal** app. (Press `Cmd + Space`, type `Terminal`, press
    `Enter`. A window with a text prompt opens — this is where you type
    commands.)
-2. Copy this line, paste it into Terminal, and press `Enter`:
+2. See what you already have — copy this line, paste it into Terminal, and press
+   `Enter`:
 
    ```bash
    python3 --version
    ```
 
 3. Look at what it prints:
-   - **`Python 3.12.x` or higher** (e.g. `3.13`) → 👍 you're good, go to Step 2.
-   - **`Python 3.11.x` or lower**, or **"command not found"** → go to
-     [python.org/downloads](https://www.python.org/downloads/), download the
-     latest version for macOS, run the installer, then **close and reopen
-     Terminal** and try the command again.
+   - **`Python 3.12.x` or `3.13.x`** → 👍 you're good, go to Step 2.
+   - **Anything else** — older (`3.11` or lower), newer (`3.14`), or
+     **"command not found"** → install 3.12:
+     1. Go to [python.org/downloads](https://www.python.org/downloads/).
+     2. ⚠️ **Don't click the big yellow "Download Python" button** — that's the
+        newest release (too new). Instead scroll down to **"Looking for a specific
+        release?"**, click the latest **Python 3.12.x**, then at the bottom of
+        *that* page download the **"macOS 64-bit universal2 installer."**
+     3. Run the installer, then **close and reopen Terminal** and check again with
+        `python3 --version`.
 
 ### Step 2: Get the code
 
