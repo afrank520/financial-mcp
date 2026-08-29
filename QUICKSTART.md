@@ -164,12 +164,17 @@ After that second command, your Terminal prompt should now start with
 on this — but for normal use through Claude, you won't need to.)
 
 ```bash
-python3 -m pip install -e .
+python3 -m pip install --only-binary=:all: -e .
 ```
 
 This downloads and installs everything the tool needs. It prints a lot of lines
 and takes a minute or two. When it finishes and you get your prompt back with no
 red error at the very end, it worked.
+
+> The `--only-binary=:all:` part tells Python to use **ready-made packages
+> only** and never try to compile anything from scratch. Skipping it can send
+> some Macs down a slow compile that fails unless you have developer tools
+> installed — this keeps it simple.
 
 ```bash
 python3 -m playwright install chromium

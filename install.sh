@@ -108,9 +108,19 @@ else
 fi
 
 # ── 3. Install the server ────────────────────────────────────────────────────
+# Prebuilt wheels ONLY (--only-binary=:all:). On some Macs (seen live on an
+# Intel machine) pip's default resolver chooses to compile `cryptography` from
+# source even though a compatible wheel exists — which then needs a Rust +
+# OpenSSL + pkg-config toolchain a normal user doesn't have, and the install
+# dies. Every dependency in this project ships a wheel, so forcing binary-only
+# is safe and keeps the install toolchain-free. If this ever fails, a dependency
+# genuinely lacks a wheel for the platform — fix that, don't drop the flag (that
+# just brings the silent from-source compile back).
 say "3/7  Installing the server and its parts (this takes a minute or two)…"
 "$PY" -m pip install --quiet --upgrade pip
-"$PY" -m pip install --quiet -e .
+if ! "$PY" -m pip install --quiet --only-binary=:all: -e .; then
+  die "Install failed — a dependency had no prebuilt package for this Mac. Re-run; if it persists, send this output to whoever shared the tool with you."
+fi
 ok "Installed"
 
 # ── 4. Sign-in browser ───────────────────────────────────────────────────────

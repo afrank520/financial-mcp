@@ -20,9 +20,14 @@ Work in a virtual environment so dependencies stay isolated and the
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python3 -m pip install -e ".[dev]"
+python3 -m pip install --only-binary=:all: -e ".[dev]"
 python3 -m playwright install chromium   # browser used only for sign-in (Step 3)
 ```
+
+`--only-binary=:all:` forces prebuilt wheels. Without it, pip may try to compile
+`cryptography` (pulled in transitively via `PyJWT[crypto]`) from source on some
+platforms — which requires a Rust + OpenSSL + pkg-config toolchain. Every
+dependency ships a wheel, so binary-only installs cleanly and toolchain-free.
 
 This installs the server and two commands: `financial-mcp` (the server) and
 `financial-mcp-login` (one-time sign-in). Both live at `.venv/bin/` — note that
