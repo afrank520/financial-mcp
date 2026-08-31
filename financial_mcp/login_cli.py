@@ -67,16 +67,25 @@ def parse_curl_cookies(blob: str) -> dict:
 
 
 def _validate(session: dict) -> bool:
-    """Confirm the session works with one live accounts call."""
-    from financial_mcp.monarch.community_adapter import CommunityAdapter
+    """Confirm the session works with one live accounts call, surfacing the
+    real error so a certificate/connection problem isn't mistaken for a bad login."""
+    from financial_mcp.monarch.community_adapter import (
+        CloudflareBlockedError,
+        CommunityAdapter,
+        SessionExpiredError,
+    )
 
     try:
         CommunityAdapter(session).get_accounts()
         return True
-    except Exception:  # noqa: BLE001
+    except (SessionExpiredError, CloudflareBlockedError) as exc:
+        print(str(exc), file=sys.stderr)
+        return False
+    except Exception as exc:  # noqa: BLE001
         print(
-            "That session did not work — it may be expired or incomplete. "
-            "Log in fresh in your browser and copy a new request.",
+            f"Couldn't verify the session: {type(exc).__name__}: {exc}\n"
+            "If this mentions CERTIFICATE_VERIFY_FAILED, it's a secure-connection "
+            "problem on this Mac, not a bad login — run `financial-mcp doctor`.",
             file=sys.stderr,
         )
         return False

@@ -182,6 +182,35 @@ def test_migrate_from_keyring_copies_and_clears(monkeypatch):
     assert key.cleared is True
 
 
+def test_validate_surfaces_real_error(monkeypatch, capsys):
+    class Boom(RuntimeError):
+        pass
+
+    def raiser(self):
+        raise Boom("CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate")
+
+    monkeypatch.setattr(
+        "financial_mcp.monarch.community_adapter.CommunityAdapter.get_accounts", raiser
+    )
+    assert cli._validate({"session_id": "x", "csrftoken": "y"}) is False
+    err = capsys.readouterr().err
+    assert "Boom" in err
+    assert "CERTIFICATE_VERIFY_FAILED" in err
+
+
+def test_validate_expired_message(monkeypatch, capsys):
+    from financial_mcp.monarch.community_adapter import SessionExpiredError
+
+    def raiser(self):
+        raise SessionExpiredError("Monarch session expired — re-run `financial-mcp-login`.")
+
+    monkeypatch.setattr(
+        "financial_mcp.monarch.community_adapter.CommunityAdapter.get_accounts", raiser
+    )
+    assert cli._validate({"session_id": "x", "csrftoken": "y"}) is False
+    assert "expired" in capsys.readouterr().err.lower()
+
+
 def test_migrate_from_keyring_refuses_when_dest_is_keyring(monkeypatch):
     """Guard: if config selects the keyring as the destination, migration would
     save then delete the same entry, losing the session — so it must refuse and
