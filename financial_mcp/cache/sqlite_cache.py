@@ -6,7 +6,7 @@ import sqlite3
 import time
 from collections.abc import Callable
 
-from financial_mcp.config import CacheTTLs
+from financial_mcp.config import CacheTTLs, ensure_parent
 
 SCHEMA_VERSION = 2
 
@@ -23,6 +23,7 @@ class SqliteCache:
         ttls: CacheTTLs,
         clock: Callable[[], float] = time.time,
     ) -> None:
+        ensure_parent(db_path)
         self._db_path = db_path
         self._ttls = ttls
         self._clock = clock

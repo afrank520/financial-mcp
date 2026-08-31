@@ -6,6 +6,8 @@ import sqlite3
 import time
 from collections.abc import Callable
 
+from financial_mcp.config import ensure_parent
+
 REVERSIBLE_OPS = ("recategorize", "rename_category", "delete_category", "rename_merchant", "create_rule", "create_category_rule", "update_rule")
 
 
@@ -15,6 +17,7 @@ class UndoJournal:
     its own `write_journal` table in the cache DB, not under SCHEMA_VERSION."""
 
     def __init__(self, db_path: str, clock: Callable[[], float] = time.time) -> None:
+        ensure_parent(db_path)
         self._clock = clock
         self._conn = sqlite3.connect(db_path)
         self._migrate()
