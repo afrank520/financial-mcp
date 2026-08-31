@@ -63,8 +63,10 @@ def test_invalid_source_rejected(tmp_path):
 
 
 def test_credential_store_defaults_to_file():
+    from pathlib import Path
+
     from financial_mcp.config import Config
 
     cfg = Config()
     assert cfg.credential_store == "file"
-    assert cfg.credential_file == "~/.financial_mcp/session.json"
+    assert cfg.credential_file == str(Path("~/.financial_mcp/session.json").expanduser())
