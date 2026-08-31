@@ -1,18 +1,52 @@
 # Install — Monarch MCP
 
 Runs locally on your Mac and connects the Claude Desktop app to your Monarch
-Money data. Requires Python 3.12 or 3.13 — avoid the newest release (e.g. 3.14),
-whose prebuilt dependency wheels may not exist yet, forcing a from-source build.
+Money data.
 
 > **Not a developer?** Follow [`../QUICKSTART.md`](../QUICKSTART.md) instead — a
 > step-by-step, zero-to-running guide. This file is the concise reference.
 
-> **Just want it working fast?** From the repo root, run `./install.sh` — it does
-> everything below (venv, install, Chromium, config, Monarch sign-in) and offers
-> to connect the Claude Desktop app for you. The steps below are the manual
-> equivalent.
+## 1. Install (primary path — `uv`)
 
-## 1. Install
+From the repo root:
+
+```bash
+bash install.sh
+```
+
+Run it as `bash install.sh`, not `./install.sh` — a ZIP download from GitHub
+loses the executable bit, and `bash install.sh` works either way.
+
+This is the primary, recommended install path. It uses [`uv`](https://docs.astral.sh/uv/)
+to fetch a known-good **Python 3.12** on its own (installing `uv` first via
+Homebrew if present, or its official installer otherwise) — you don't need a
+system Python at all, and it won't conflict with one you already have. It then
+builds `.venv`, installs the server and its dependencies, downloads the
+Chromium browser used only for Monarch sign-in, writes `config.yaml` (live
+data, read-only to start), runs the Monarch sign-in flow, runs a self-check
+(`financial-mcp-doctor`, see below), and offers to wire up the Claude Desktop
+config for you.
+
+Safe to re-run anytime; `bash install.sh --fresh` rebuilds `.venv` from scratch
+via `uv` while keeping your `config.yaml` and saved Monarch login.
+
+This installs the server and three commands, all living at `.venv/bin/` (note
+that absolute path — Step 4 needs it):
+- `financial-mcp` — the server
+- `financial-mcp-login` — one-time sign-in
+- `financial-mcp-doctor` — one-command health check (Python version, config
+  paths resolve and are writable, secure connection to Monarch, saved session
+  valid). Run it any time something seems off: `.venv/bin/financial-mcp-doctor`.
+
+TLS to Monarch is backed by the `certifi` CA bundle (a direct dependency), so
+HTTPS works out of the box without macOS's separate "activate root
+certificates" step that a hand-installed python.org Python needs.
+
+## 1b. Manual / developer fallback
+
+Prefer to do it by hand, or need a Python you already manage yourself? Requires
+Python 3.12 or 3.13 — avoid the newest release (e.g. 3.14), whose prebuilt
+dependency wheels may not exist yet, forcing a from-source build.
 
 Work in a virtual environment so dependencies stay isolated and the
 `financial-mcp` command lands at a stable path you can point Claude at:
@@ -29,9 +63,15 @@ python3 -m playwright install chromium   # browser used only for sign-in (Step 3
 platforms — which requires a Rust + OpenSSL + pkg-config toolchain. Every
 dependency ships a wheel, so binary-only installs cleanly and toolchain-free.
 
-This installs the server and two commands: `financial-mcp` (the server) and
-`financial-mcp-login` (one-time sign-in). Both live at `.venv/bin/` — note that
+This installs the same server and commands as above (`financial-mcp`,
+`financial-mcp-login`, `financial-mcp-doctor`) at `.venv/bin/` — note that
 absolute path; Step 4 needs it.
+
+> If you install Python this way from python.org rather than via `bash
+> install.sh`, macOS's root certificates aren't activated for that Python
+> automatically — if `financial-mcp-doctor` reports a certificate failure, run
+> the bundled **"Install Certificates.command"** (Applications → your Python
+> 3.12 folder) once.
 
 ## 2. Configure
 

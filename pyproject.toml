@@ -1,6 +1,6 @@
 [project]
 name = "financial-mcp"
-version = "1.0.0"
+version = "1.1.0"
 description = "Local MCP server that lets Claude read and safely maintain your Monarch Money data"
 license = "Apache-2.0"
 requires-python = ">=3.12"
