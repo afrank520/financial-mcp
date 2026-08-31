@@ -3,12 +3,12 @@
 # install.sh — one-command setup for the Monarch MCP server (macOS).
 #
 # What it does, in order:
-#   1. Checks you have Python 3.12+
-#   2. Creates an isolated virtual environment (.venv) in this folder
+#   1. Makes sure uv (the Python installer/manager) is available
+#   2. Uses uv to fetch Python 3.12 and build an isolated virtual environment (.venv)
 #   3. Installs the server and its dependencies into it
 #   4. Downloads the small browser used only for Monarch sign-in
 #   5. Creates your config.yaml (set to live Monarch data, read-only to start)
-#   6. Signs you in to Monarch (opens a browser)
+#   6. Signs you in to Monarch (opens a browser), then runs a quick self-check
 #   7. Offers to connect it to the Claude Desktop app for you
 #
 # It NEVER sends anything anywhere. Everything happens on this Mac. Read it
@@ -16,7 +16,7 @@
 # a script you run locally instead of a "curl | bash" one-liner.
 #
 # Usage:  ./install.sh           (run it from inside this folder)
-#         ./install.sh --fresh   (rebuild .venv from scratch; keeps your
+#         ./install.sh --fresh   (rebuild .venv from scratch via uv; keeps your
 #                                  config.yaml and saved Monarch login)
 #
 # Safe to re-run anytime — it reuses what's already there and won't clobber
@@ -50,77 +50,35 @@ for arg in "$@"; do
   esac
 done
 
-# ── 1. Python 3.12 / 3.13 ────────────────────────────────────────────────────
-# Require a mainstream Python (3.12 or 3.13). The newest release (3.14+) is
-# deliberately rejected: some dependencies (e.g. cryptography, pulled in for
-# secure login) don't publish prebuilt wheels for it yet, so pip falls back to
-# compiling from source — which needs a Rust + OpenSSL toolchain a normal user
-# won't have, and the install dies with a wall of build errors. Bump the upper
-# bound once wheels catch up.
-say "1/7  Checking Python…"
-
-# Prefer a known-good interpreter even if `python3` points at something newer,
-# so someone who installs 3.12 alongside 3.14 gets picked up automatically.
-PYBIN=""
-for cand in python3.12 python3.13 python3; do
-  p="$(command -v "$cand" || true)"
-  [ -n "$p" ] || continue
-  if "$p" -c 'import sys; sys.exit(0 if (3,12) <= sys.version_info < (3,14) else 1)' 2>/dev/null; then
-    PYBIN="$p"; break
-  fi
-done
-
-PY312_HELP="Install Python 3.12 from https://www.python.org/downloads/ — scroll to \"Looking for a specific release?\", pick the latest 3.12.x, and download the macOS 64-bit universal2 installer. Then re-run this."
-if [ -z "$PYBIN" ]; then
-  p="$(command -v python3 || true)"
-  if [ -z "$p" ]; then
-    die "Python isn't installed. $PY312_HELP"
-  fi
-  VER="$("$p" --version 2>&1)"
-  if "$p" -c 'import sys; sys.exit(0 if sys.version_info < (3,12) else 1)' 2>/dev/null; then
-    die "$VER is too old (need 3.12+). $PY312_HELP"
-  else
-    die "$VER is too new for this installer — some parts have no ready-made packages for it yet, so the install would fail trying to compile them. $PY312_HELP"
-  fi
-fi
-ok "$("$PYBIN" --version) at $PYBIN"
-
-# ── 2. Virtual environment ───────────────────────────────────────────────────
-say "2/7  Creating the virtual environment…"
-if [ "$FRESH" -eq 1 ] && [ -d "$VENV" ]; then
-  rm -rf "$VENV"
-  ok "Removed the old .venv (--fresh); your config.yaml and Monarch login are untouched"
-fi
-# A .venv left over from a failed attempt can carry an out-of-range Python (e.g.
-# a 3.14 from before 3.12 was installed). Reusing it would repeat the same
-# from-source build that just failed — the version check above only covers the
-# system Python, not what's already baked into the venv. Detect a stale venv and
-# rebuild it with the good interpreter instead of blindly reusing it.
-if [ -x "$PY" ] && ! "$PY" -c 'import sys; sys.exit(0 if (3,12) <= sys.version_info < (3,14) else 1)' 2>/dev/null; then
-  warn "Existing .venv uses $("$PY" --version 2>&1), which won't work here — rebuilding it with $("$PYBIN" --version)."
-  rm -rf "$VENV"
-fi
-if [ -x "$PY" ]; then
-  ok "Reusing existing .venv"
+# ── 1. Ensure uv ───────────────────────────────────────────────────────────
+say "1/7  Making sure uv is available…"
+if command -v uv >/dev/null 2>&1; then
+  ok "uv already installed ($(uv --version))"
+elif command -v brew >/dev/null 2>&1; then
+  brew install uv || die "brew install uv failed."
+  ok "Installed uv via Homebrew"
 else
-  "$PYBIN" -m venv "$VENV"
-  ok "Created .venv"
+  TMP_UV="$(mktemp -t uv-install)"
+  warn "Homebrew not found — downloading uv's official installer to $TMP_UV (you can inspect it)."
+  curl -LsSf https://astral.sh/uv/install.sh -o "$TMP_UV" || die "Could not download the uv installer."
+  sh "$TMP_UV" || die "uv installer failed."
+  ok "Installed uv"
 fi
+# uv's script installs to ~/.local/bin; make it visible for the rest of this run.
+export PATH="$HOME/.local/bin:$PATH"
+command -v uv >/dev/null 2>&1 || die "uv is still not on PATH. Open a new Terminal and re-run."
 
-# ── 3. Install the server ────────────────────────────────────────────────────
-# Prebuilt wheels ONLY (--only-binary=:all:). On some Macs (seen live on an
-# Intel machine) pip's default resolver chooses to compile `cryptography` from
-# source even though a compatible wheel exists — which then needs a Rust +
-# OpenSSL + pkg-config toolchain a normal user doesn't have, and the install
-# dies. Every dependency in this project ships a wheel, so forcing binary-only
-# is safe and keeps the install toolchain-free. If this ever fails, a dependency
-# genuinely lacks a wheel for the platform — fix that, don't drop the flag (that
-# just brings the silent from-source compile back).
-say "3/7  Installing the server and its parts (this takes a minute or two)…"
-"$PY" -m pip install --quiet --upgrade pip
-if ! "$PY" -m pip install --quiet --only-binary=:all: -e .; then
-  die "Install failed — a dependency had no prebuilt package for this Mac. Re-run; if it persists, send this output to whoever shared the tool with you."
+# ── 2. Python 3.12 + venv (uv fetches a known-good Python) ──────────────────
+say "2/7  Building the environment with Python 3.12…"
+if [ "$FRESH" -eq 1 ] && [ -d "$VENV" ]; then
+  rm -rf "$VENV"; ok "Removed the old .venv (--fresh); config.yaml and login untouched"
 fi
+uv venv --python 3.12 "$VENV" || die "uv could not create the environment."
+ok "Environment ready at .venv (Python 3.12)"
+
+# ── 3. Install the server ───────────────────────────────────────────────────
+say "3/7  Installing the server and its parts…"
+uv pip install --python "$PY" -e . || die "Install failed. Re-run; if it persists, send this output along."
 ok "Installed"
 
 # ── 4. Sign-in browser ───────────────────────────────────────────────────────
@@ -186,6 +144,9 @@ if "$VENV/bin/financial-mcp-login"; then
 else
   warn "Sign-in did not complete. You can re-run it later with: $VENV/bin/financial-mcp-login"
 fi
+
+say "Running a quick self-check…"
+"$VENV/bin/financial-mcp-doctor" || warn "The self-check found an issue above — see the message for the fix."
 
 # ── 7. Connect Claude Desktop ────────────────────────────────────────────────
 say "7/7  Connecting the Claude Desktop app…"

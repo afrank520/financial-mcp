@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import sys
 
-from financial_mcp.config import Config
+from financial_mcp.config import Config, ensure_parent
 
 
 def mask(value: str) -> str:
@@ -29,6 +29,7 @@ def configure_logging(cfg: Config) -> logging.Logger:
     logger.addHandler(stderr_handler)
 
     if cfg.log_file:
+        ensure_parent(cfg.log_file)
         file_handler = logging.FileHandler(cfg.log_file, encoding="utf-8")
         file_handler.setFormatter(fmt)
         logger.addHandler(file_handler)

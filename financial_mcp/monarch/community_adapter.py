@@ -5,8 +5,12 @@ import asyncio
 import concurrent.futures
 import datetime
 import json
+import ssl
 from collections.abc import Awaitable, Callable
 from decimal import Decimal
+
+import aiohttp
+import certifi
 
 from financial_mcp.monarch import auth
 from financial_mcp.monarch.adapter import MonarchAdapter
@@ -38,6 +42,10 @@ from financial_mcp.monarch.queries import (
 from financial_mcp.writes import _category_rule_input, _rename_rule_input, _update_rule_input
 
 GRAPHQL_URL = "https://api.monarch.com/graphql"
+# Build the SSL context from certifi's bundle rather than relying on the OS/Python
+# install to have activated its own CA certs — python.org's macOS Python ships certs
+# but never activates them, so uncontexted HTTPS calls die with CERTIFICATE_VERIFY_FAILED.
+_SSL_CTX = ssl.create_default_context(cafile=certifi.where())
 # A real-browser User-Agent keeps us clear of any future Cloudflare UA rule.
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -110,8 +118,6 @@ class CommunityAdapter(MonarchAdapter):
         object; raises typed errors on auth/Cloudflare failure. A fresh
         ClientSession per call — a shared session breaks under the _run bridge,
         which may execute each call on a different event loop."""
-        import aiohttp
-
         sid = self._session["session_id"]
         csrf = self._session["csrftoken"]
         headers = {
@@ -125,7 +131,8 @@ class CommunityAdapter(MonarchAdapter):
         cookies = {"session_id": sid, "csrftoken": csrf}
         payload = {"operationName": operation, "variables": variables, "query": query}
 
-        async with aiohttp.ClientSession(cookies=cookies) as session:
+        connector = aiohttp.TCPConnector(ssl=_SSL_CTX)
+        async with aiohttp.ClientSession(cookies=cookies, connector=connector) as session:
             async with session.post(GRAPHQL_URL, json=payload, headers=headers) as resp:
                 status = resp.status
                 text = await resp.text()

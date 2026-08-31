@@ -2,9 +2,12 @@
 # credentials live in a local file or the OS keyring (see credential_store
 # below), set via `financial-mcp-login`.
 
+# Bare filenames (no leading /) auto-resolve under ~/.financial_mcp/ — e.g.
+# "cache.db" becomes ~/.financial_mcp/cache.db. That directory is created for
+# you. Give an absolute path instead if you want it stored somewhere else.
 db_path: cache.db
 log_level: INFO
-log_file: financial_mcp.log      # omit or null for stderr only
+log_file: financial_mcp.log      # same auto-resolve rule; omit or null for stderr only
 
 # off = reads only | safe = reads + reversible writes | full = + destructive
 # Ships read-only. Change to "safe" (or "full") to enable writes.

@@ -18,36 +18,40 @@ same for both), then jump to your path.
 
 ---
 
-## Overview — the whole setup in 5 steps
+## Overview — the whole setup in 3 steps
 
 Here's the entire thing at a glance. Each step is explained in full detail below —
 this is just the map so you know where you're headed:
 
-1. **Install Python 3.12** — the reliable version. Avoid the newest release
-   (like 3.14); it's too new and breaks the install *(Step 1)*.
-2. **Download the code** as a ZIP from the repo *(Step 2)*.
-3. **Unzip it and move the folder** somewhere you'll remember, like Documents
-   *(Step 2)*.
-4. **Open a Terminal pointed at that folder** — easiest way: in Finder,
+1. **Download the code** as a ZIP from the repo, unzip it, and move the folder
+   somewhere you'll remember, like Documents *(Step 1)*.
+2. **Open a Terminal pointed at that folder** — easiest way: in Finder,
    right-click the folder → **Services → New Terminal at Folder**. (Don't see that
    option? Type `cd` and a space in Terminal, drag the folder onto the window, and
-   press Enter.) *(Step 3 has the details.)*
-5. **Run the installer:**
+   press Enter.) *(Step 2 has the details.)*
+3. **Run the installer:**
 
    ```bash
-   ./install.sh
+   bash install.sh
    ```
 
-   It builds the environment, installs everything, downloads the sign-in browser,
-   opens Monarch for you to log in, writes your settings, and **offers to connect
-   the Claude Desktop app for you.** When it finishes, fully quit Claude
-   (`Cmd + Q`), reopen it, and ask *"What are my Monarch account balances?"*
+   > Run it as `bash install.sh`, not `./install.sh` — a ZIP download from
+   > GitHub sometimes loses the file's "this is a program" flag, and typing
+   > `./install.sh` in that case fails with "permission denied." `bash
+   > install.sh` always works, ZIP or not.
 
-That's the fast path. Two things worth knowing before you start:
+   This one command does everything: it fetches a known-good Python 3.12 for
+   you automatically (via a small helper called `uv` — **you do not need to
+   install Python yourself**, and it won't touch or conflict with any Python
+   already on your Mac), builds an isolated environment, installs the server,
+   downloads the small sign-in browser, writes your settings (live Monarch
+   data, read-only to start), opens Monarch for you to log in, runs a quick
+   self-check, and **offers to connect the Claude Desktop app for you.** When it
+   finishes, fully quit Claude (`Cmd + Q`), reopen it, and ask *"What are my
+   Monarch account balances?"*
 
-- The installer **also checks Python itself** and stops with a clear message if
-  your version is too old *or too new* — so step 1 above is just an early
-  heads-up, not strictly required.
+That's the fast path. One thing worth knowing before you start:
+
 - When it asks **"Add this to Claude Desktop automatically?"**, the default is
   **No** — you have to type `y` and press Enter. If you just press Enter, it skips
   that step and you'll have to connect Claude by hand later (Path A2). **Type `y`**
@@ -58,48 +62,19 @@ That's the fast path. Two things worth knowing before you start:
 > You download the code, then run a script you can read — safer, same result.
 
 **Safe to re-run anytime.** If an install gets interrupted or something looks off,
-just run `./install.sh` again — it reuses what's already there and won't touch your
+just run `bash install.sh` again — it reuses what's already there and won't touch your
 `config.yaml` or your saved Monarch login. To rebuild the environment from scratch
-(while still keeping your settings and login), run `./install.sh --fresh`.
+(while still keeping your settings and login), run `bash install.sh --fresh`.
 
-Prefer to understand and do each step by hand (or the installer hit a snag)?
-Follow **Part 1** below — it covers the same ground manually. 👇
+Prefer to understand and do each step by hand, or did the installer hit a snag?
+The **[manual fallback](#manual--developer-fallback-do-each-step-by-hand)** at the
+end of Part 1 covers the same ground step by step. 👇
 
 ---
 
 ## Part 1 — One-time setup (do this once)
 
-### Step 1: Install Python 3.12
-
-This tool is written in Python, a free programming language. It needs a
-**mainstream** version — **Python 3.12** is the reliable choice. (The very newest
-release, like 3.14, is actually *too* new: some parts of the tool don't have
-ready-made packages for it yet, so the install fails trying to build them from
-scratch. Stick with 3.12.)
-
-1. Open the **Terminal** app. (Press `Cmd + Space`, type `Terminal`, press
-   `Enter`. A window with a text prompt opens — this is where you type
-   commands.)
-2. See what you already have — copy this line, paste it into Terminal, and press
-   `Enter`:
-
-   ```bash
-   python3 --version
-   ```
-
-3. Look at what it prints:
-   - **`Python 3.12.x` or `3.13.x`** → 👍 you're good, go to Step 2.
-   - **Anything else** — older (`3.11` or lower), newer (`3.14`), or
-     **"command not found"** → install 3.12:
-     1. Go to [python.org/downloads](https://www.python.org/downloads/).
-     2. ⚠️ **Don't click the big yellow "Download Python" button** — that's the
-        newest release (too new). Instead scroll down to **"Looking for a specific
-        release?"**, click the latest **Python 3.12.x**, then at the bottom of
-        *that* page download the **"macOS 64-bit universal2 installer."**
-     3. Run the installer, then **close and reopen Terminal** and check again with
-        `python3 --version`.
-
-### Step 2: Get the code
+### Step 1: Get the code
 
 1. Go to the project page: **https://github.com/afrank520/financial-mcp**
    (you'll need to be signed in to GitHub with access — this is a private repo).
@@ -113,7 +88,7 @@ scratch. Stick with 3.12.)
 > Prefer git? `git clone https://github.com/afrank520/financial-mcp.git` instead
 > of steps 1–3. The rest is identical.
 
-### Step 3: Open a Terminal pointed at the folder
+### Step 2: Open a Terminal pointed at the folder
 
 Every command you'll run needs to happen *inside* the project folder you just
 moved. The easiest way to get there:
@@ -143,12 +118,75 @@ ls
 like `README.md`, `pyproject.toml`, and `config.example.yaml`. If you do, you're
 pointed at the right folder. 👍
 
-### Step 4: Create the virtual environment and install
+### Step 3: Run the installer
+
+```bash
+bash install.sh
+```
+
+Follow the prompts. It fetches Python 3.12 automatically (no manual Python
+install needed), builds the environment, installs everything, downloads the
+sign-in browser, writes a `config.yaml` set to live Monarch data (read-only to
+start), opens a browser window for you to sign in to Monarch, runs a quick
+self-check (the same one `financial-mcp-doctor` runs on its own — see
+"[If something goes wrong](#if-something-goes-wrong)"), and offers to connect
+the Claude Desktop app for you. See the
+[Overview](#overview--the-whole-setup-in-3-steps) above for exactly what to
+expect at each prompt.
+
+When it's done signing you in to Monarch, you're through Part 1.
+
+**Setup is done.** Now connect it to your Claude — pick your path below.
+
+---
+
+## Manual / developer fallback (do each step by hand)
+
+Skip this unless you want to understand every step, or `bash install.sh` hit a
+snag and you'd rather work through it by hand. This walks through exactly what
+the installer automates.
+
+### Fallback Step 1: Install Python 3.12
+
+This tool is written in Python, a free programming language. It needs a
+**mainstream** version — **Python 3.12** is the reliable choice. (The very newest
+release, like 3.14, is actually *too* new: some parts of the tool don't have
+ready-made packages for it yet, so the install fails trying to build them from
+scratch. Stick with 3.12.)
+
+1. Open the **Terminal** app. (Press `Cmd + Space`, type `Terminal`, press
+   `Enter`. A window with a text prompt opens — this is where you type
+   commands.)
+2. See what you already have — copy this line, paste it into Terminal, and press
+   `Enter`:
+
+   ```bash
+   python3 --version
+   ```
+
+3. Look at what it prints:
+   - **`Python 3.12.x` or `3.13.x`** → 👍 you're good, go to the next fallback step.
+   - **Anything else** — older (`3.11` or lower), newer (`3.14`), or
+     **"command not found"** → install 3.12:
+     1. Go to [python.org/downloads](https://www.python.org/downloads/).
+     2. ⚠️ **Don't click the big yellow "Download Python" button** — that's the
+        newest release (too new). Instead scroll down to **"Looking for a specific
+        release?"**, click the latest **Python 3.12.x**, then at the bottom of
+        *that* page download the **"macOS 64-bit universal2 installer."**
+     3. Run the installer, then **close and reopen Terminal** and check again with
+        `python3 --version`.
+     4. This installer also does not activate macOS's root certificates for you —
+        if you later see a certificate error, run the bundled
+        **"Install Certificates.command"** from the Python folder in
+        Applications (see "[If something goes wrong](#if-something-goes-wrong)").
+
+### Fallback Step 2: Create the virtual environment and install
 
 A **virtual environment** is a private folder that holds Python and this tool's
 parts, kept separate from the rest of your Mac so nothing conflicts. It also
 creates the exact command Claude will need later. Run these **one at a time**
-(paste, press Enter, wait for it to finish, then do the next):
+(paste, press Enter, wait for it to finish, then do the next), from inside the
+project folder (see Part 1, Step 1 and Step 2 above if you jumped straight here):
 
 ```bash
 python3 -m venv .venv
@@ -184,7 +222,7 @@ This downloads a small private browser the tool uses **only** to let you sign in
 to Monarch. This one-time download is what makes the easy sign-in (next step)
 work.
 
-### Step 5: Turn on live Monarch data
+### Fallback Step 3: Turn on live Monarch data
 
 1. Make your own settings file by copying the example:
 
@@ -213,10 +251,12 @@ work.
 4. **Leave everything else alone.** In particular, leave `write_mode: "off"` as
    it is — that keeps the tool **read-only** (it can look at your money but can't
    change anything), which is the safe way to start. You can turn on the cleanup
-   features later once you trust it.
+   features later once you trust it. (The `db_path` / `log_file` lines are bare
+   filenames on purpose — they auto-resolve under `~/.financial_mcp/`, so you
+   don't need to type a full path.)
 5. Save (`Cmd + S`) and close TextEdit.
 
-### Step 6: Sign in to Monarch (one time)
+### Fallback Step 4: Sign in to Monarch (one time)
 
 Monarch has no public developer access, so the tool signs in the same way you do
 — through a browser. It only ever keeps two small session cookies, **never your
@@ -262,7 +302,7 @@ already did this without realizing it** — so start here:
 
 ### A1: Did you use the installer?
 
-**If you ran `./install.sh` and answered _yes_ when it asked to connect Claude
+**If you ran `bash install.sh` and answered _yes_ when it asked to connect Claude
 Desktop** — you're already connected. There's nothing more to set up. **Skip
 straight to [A3: Restart and test](#a3-restart-and-test).**
 
@@ -429,6 +469,32 @@ Everything is computed on your machine and answered penny-accurately.
 
 ## If something goes wrong
 
+**Not sure what's wrong? Run the one-command health check first.**
+
+```bash
+.venv/bin/financial-mcp-doctor
+```
+
+(Or just `financial-mcp-doctor` if your Terminal prompt shows `(.venv)`.) It
+checks your Python version, that your config paths resolve and are writable,
+that a secure connection to Monarch works, and that your saved sign-in session
+is still valid — and tells you exactly which one is wrong.
+
+**`permission denied` when running the installer.**
+Run it as `bash install.sh` instead of `./install.sh` — ZIP downloads from
+GitHub sometimes lose the file's executable flag, and `bash install.sh` works
+regardless.
+
+**Certificate / secure-connection error** (`CERTIFICATE_VERIFY_FAILED` or
+`financial-mcp-doctor` reports the secure-connection check failed).
+Run `.venv/bin/financial-mcp-doctor` to confirm that's the issue. If you installed Python
+by hand from python.org (the [manual fallback](#manual--developer-fallback-do-each-step-by-hand)
+above) rather than through `bash install.sh`, that installer doesn't turn on
+macOS's root certificates for you — open **Macintosh HD → Applications →
+Python 3.12** and double-click **"Install Certificates.command,"** then try
+again. (Installs via `bash install.sh` don't hit this — the bundled `certifi`
+package handles it automatically.)
+
 **Claude says it doesn't have a "monarch" tool / can't see your accounts.**
 The most common cause is a wrong path in the settings file. Re-run the two `echo`
 commands from **[A2, Step 1](#a2-connect-it-by-hand-only-if-the-installer-didnt-do-it)**
@@ -457,12 +523,12 @@ Your virtual environment isn't active. Make sure your Terminal prompt shows
 `source .venv/bin/activate`, then try again.
 
 **An install got interrupted, or you just want a clean slate.**
-Re-running `./install.sh` is always safe — it picks up where it left off and
+Re-running `bash install.sh` is always safe — it picks up where it left off and
 leaves your `config.yaml` and Monarch login alone. To rebuild the environment
 from scratch (say the `.venv` got into a weird state), run:
 
 ```bash
-./install.sh --fresh
+bash install.sh --fresh
 ```
 
 That deletes and recreates `.venv` only; your settings and saved login are kept.

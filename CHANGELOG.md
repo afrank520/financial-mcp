@@ -3,6 +3,24 @@
 All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org).
 
+## [1.1.0] — 2026-08-31
+
+Install hardening: a smoother, more reliable first-run on a clean Mac.
+
+- **`uv`-based installer.** `install.sh` now uses `uv` to fetch a known-good
+  Python 3.12 and build `.venv` itself, then runs a self-check — no more
+  asking users to have the right system Python already installed.
+- **`certifi`-backed TLS.** HTTPS to Monarch now uses the `certifi` CA bundle,
+  so it works without the python.org "Install Certificates.command" ceremony.
+- **Config path resolution.** Bare filenames (`cache.db`, etc.) now resolve
+  under `~/.financial_mcp/` automatically, fixing a crash under Claude
+  Desktop's `cwd=/`.
+- **Honest login errors.** Sign-in failures now name the real cause instead
+  of a generic "session didn't work."
+- **`financial-mcp-doctor`.** A new one-command health check verifies Python
+  version, config paths, secure connection to Monarch, and saved session in one
+  shot.
+
 ## [1.0.0] — 2026-08-27
 
 First release: a local MCP server that lets Claude read and safely maintain your
