@@ -486,8 +486,8 @@ GitHub sometimes lose the file's executable flag, and `bash install.sh` works
 regardless.
 
 **Certificate / secure-connection error** (`CERTIFICATE_VERIFY_FAILED` or
-`financial-mcp doctor` reports the secure-connection check failed).
-Run `financial-mcp doctor` to confirm that's the issue. If you installed Python
+`financial-mcp-doctor` reports the secure-connection check failed).
+Run `.venv/bin/financial-mcp-doctor` to confirm that's the issue. If you installed Python
 by hand from python.org (the [manual fallback](#manual--developer-fallback-do-each-step-by-hand)
 above) rather than through `bash install.sh`, that installer doesn't turn on
 macOS's root certificates for you — open **Macintosh HD → Applications →
