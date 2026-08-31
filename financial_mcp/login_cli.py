@@ -85,7 +85,7 @@ def _validate(session: dict) -> bool:
         print(
             f"Couldn't verify the session: {type(exc).__name__}: {exc}\n"
             "If this mentions CERTIFICATE_VERIFY_FAILED, it's a secure-connection "
-            "problem on this Mac, not a bad login — run `financial-mcp doctor`.",
+            "problem on this Mac, not a bad login — run `financial-mcp-doctor`.",
             file=sys.stderr,
         )
         return False

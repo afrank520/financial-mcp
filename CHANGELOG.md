@@ -17,9 +17,9 @@ Install hardening: a smoother, more reliable first-run on a clean Mac.
   Desktop's `cwd=/`.
 - **Honest login errors.** Sign-in failures now name the real cause instead
   of a generic "session didn't work."
-- **`financial-mcp doctor`.** A new one-command health check
-  (`financial-mcp-doctor`) verifies Python version, config paths, secure
-  connection to Monarch, and saved session in one shot.
+- **`financial-mcp-doctor`.** A new one-command health check verifies Python
+  version, config paths, secure connection to Monarch, and saved session in one
+  shot.
 
 ## [1.0.0] — 2026-08-27
 

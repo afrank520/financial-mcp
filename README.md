@@ -78,8 +78,8 @@ session into the file store, run `financial-mcp-login --migrate-from-keyring`.
 
 See **[docs/INSTALL.md](docs/INSTALL.md)** — install, log in (a browser window
 opens; sign in normally), point it at your config, and wire it into the Claude
-Desktop app. If anything seems off after setup, run `financial-mcp doctor`
-(installed as `financial-mcp-doctor`) — a one-command health check of your
+Desktop app. If anything seems off after setup, run `financial-mcp-doctor`
+— a one-command health check of your
 Python version, config paths, secure connection to Monarch, and saved session.
 
 ## Roadmap
