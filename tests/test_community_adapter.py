@@ -246,7 +246,7 @@ def test_default_transport_200_with_data(monkeypatch):
     """HTTP 200 with data returns the data dict."""
     import aiohttp
 
-    def mock_session(cookies):
+    def mock_session(cookies, connector=None):
         body = '{"data": {"accounts": [{"displayName": "Checking"}]}}'
         return _MockSession(200, body)
 
@@ -261,7 +261,7 @@ def test_default_transport_200_with_errors_raises_runtime_error(monkeypatch):
     """HTTP 200 with errors but no data raises RuntimeError."""
     import aiohttp
 
-    def mock_session(cookies):
+    def mock_session(cookies, connector=None):
         body = '{"errors": [{"message": "Something went wrong"}]}'
         return _MockSession(200, body)
 
@@ -276,7 +276,7 @@ def test_default_transport_200_non_json_raises_runtime_error(monkeypatch):
     """HTTP 200 with non-JSON body raises RuntimeError."""
     import aiohttp
 
-    def mock_session(cookies):
+    def mock_session(cookies, connector=None):
         return _MockSession(200, "<!DOCTYPE html><html>...")
 
     monkeypatch.setattr(aiohttp, "ClientSession", mock_session)
@@ -290,7 +290,7 @@ def test_default_transport_403_shall_not_pass_raises_cloudflare_error(monkeypatc
     """HTTP 403 with 'Shall Not Pass' raises CloudflareBlockedError."""
     import aiohttp
 
-    def mock_session(cookies):
+    def mock_session(cookies, connector=None):
         return _MockSession(403, "You Shall Not Pass!")
 
     monkeypatch.setattr(aiohttp, "ClientSession", mock_session)
@@ -304,7 +304,7 @@ def test_default_transport_401_raises_session_expired_error(monkeypatch):
     """HTTP 401 (no Shall Not Pass) raises SessionExpiredError."""
     import aiohttp
 
-    def mock_session(cookies):
+    def mock_session(cookies, connector=None):
         body = '{"detail": "Authentication credentials were not provided."}'
         return _MockSession(401, body)
 
@@ -319,7 +319,7 @@ def test_default_transport_403_normal_body_raises_session_expired_error(monkeypa
     """HTTP 403 without Cloudflare marker raises SessionExpiredError."""
     import aiohttp
 
-    def mock_session(cookies):
+    def mock_session(cookies, connector=None):
         body = '{"detail": "Token expired"}'
         return _MockSession(403, body)
 
@@ -334,7 +334,7 @@ def test_default_transport_500_raises_runtime_error(monkeypatch):
     """HTTP 500 raises RuntimeError."""
     import aiohttp
 
-    def mock_session(cookies):
+    def mock_session(cookies, connector=None):
         return _MockSession(500, "Internal Server Error")
 
     monkeypatch.setattr(aiohttp, "ClientSession", mock_session)
