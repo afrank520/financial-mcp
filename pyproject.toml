@@ -25,6 +25,7 @@ dev = [
 [project.scripts]
 financial-mcp = "financial_mcp.main:main"
 financial-mcp-login = "financial_mcp.login_cli:main"
+financial-mcp-doctor = "financial_mcp.doctor:main"
 
 [build-system]
 requires = ["setuptools>=68"]
