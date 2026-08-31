@@ -201,14 +201,25 @@ def test_validate_surfaces_real_error(monkeypatch, capsys):
 def test_validate_expired_message(monkeypatch, capsys):
     from financial_mcp.monarch.community_adapter import SessionExpiredError
 
+    known_message = "Monarch session expired — re-run `financial-mcp-login`."
+
     def raiser(self):
-        raise SessionExpiredError("Monarch session expired — re-run `financial-mcp-login`.")
+        raise SessionExpiredError(known_message)
 
     monkeypatch.setattr(
         "financial_mcp.monarch.community_adapter.CommunityAdapter.get_accounts", raiser
     )
     assert cli._validate({"session_id": "x", "csrftoken": "y"}) is False
-    assert "expired" in capsys.readouterr().err.lower()
+    err = capsys.readouterr().err
+    assert "expired" in err.lower()
+    # Pin to the specific except (SessionExpiredError, ...) branch: it prints the
+    # exception's own message verbatim. If that branch were ever dropped and
+    # SessionExpiredError fell through to the generic `except Exception` handler,
+    # the message would still contain "expired" (false pass) but would ALSO be
+    # wrapped in "Couldn't verify the session: ..." — so asserting the wrapper's
+    # absence is what actually catches that regression.
+    assert known_message in err
+    assert "Couldn't verify the session:" not in err
 
 
 def test_migrate_from_keyring_refuses_when_dest_is_keyring(monkeypatch):
