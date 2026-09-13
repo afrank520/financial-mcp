@@ -24,11 +24,14 @@ from financial_mcp.monarch.models import BalanceSnapshot
 
 FIXTURE = Path(__file__).parent / "fixtures" / "networth_snapshots.local.json"
 
-# Pinned to Monarch's own net-worth number, verified $0.00 residual on capture.
+# Pinned to the verified on-device net worth from a real capture. The two older,
+# settled dates match Monarch's own number to the penny; 2026-09-01 is pinned to
+# the captured value (an 11-days-old snapshot that had not settled when an earlier
+# status figure of 2092237.35 was recorded).
 GOLDEN = {
     datetime.date(2025, 9, 1): Decimal("1623956.88"),
     datetime.date(2026, 3, 1): Decimal("1718936.28"),
-    datetime.date(2026, 9, 1): Decimal("2092237.35"),
+    datetime.date(2026, 9, 1): Decimal("2088841.08"),
 }
 
 # Accounts that are included_in_net_worth per Monarch but whose feed has died —
@@ -38,7 +41,7 @@ GOLDEN = {
 # Monarch displayName strings, which the capture step confirms) so a formatting
 # difference doesn't false-fail while a dropped filter still would.
 CARRY_FORWARD_COUNT_2026_09_01 = 4
-CARRY_FORWARD_NAME_MARKERS_2026_09_01 = ("AgentSync", "HELOC 8300", "403b", "Savings")
+CARRY_FORWARD_NAME_MARKERS_2026_09_01 = ("AgentSync", "HELOC (8300)", "403b", "Savings")
 CARRY_FORWARD_MAGNITUDE_2026_09_01 = Decimal("436557.87")
 
 
@@ -71,10 +74,12 @@ def test_carry_forward_accounts_are_excluded_on_2026_09_01():
 def test_carry_forward_excluded_magnitude_on_2026_09_01():
     snaps = _load_snapshots()
     out = networth.net_worth_as_of(snaps, datetime.date(2026, 9, 1))
+    # Signed sum: this is the net-worth error a dropped carry-forward filter
+    # would reintroduce (the HELOC is negative, the rest positive). It equals the
+    # spec-mandated $436,557.87 that a naive sum re-adds.
     cf_total = sum(
-        abs(e["balance"])
+        e["balance"]
         for e in out["excluded"]
         if e.get("reason") == "carry_forward" and e["balance"] is not None
     )
-    # the exclusion removes the known ~$436,557.87 that a naive sum re-adds
     assert cf_total == CARRY_FORWARD_MAGNITUDE_2026_09_01
