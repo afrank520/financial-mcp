@@ -17,6 +17,17 @@ from financial_mcp.utils.logging import configure_logging
 logger = logging.getLogger("financial_mcp")
 
 
+def _startup_message(source: str, pid: int | None = None) -> str:
+    """The one startup log line, stamped with the process id.
+
+    Claude Desktop spawns the stdio server several times during its connect
+    handshake (probe -> intentional shutdown -> re-spawn); each is a fresh,
+    short-lived process that reaches main() once. The pid makes those repeats
+    read as distinct processes rather than an in-process double-init (D-7).
+    """
+    return f"financial-mcp starting (pid={os.getpid() if pid is None else pid} source={source})"
+
+
 def _csv_or_exit(cfg: Config) -> MonarchAdapter:
     if not cfg.csv_transactions_path or not cfg.csv_balances_path:
         raise SystemExit(
@@ -43,7 +54,7 @@ def main() -> None:
     adapter = build_adapter(cfg)
     cache = SqliteCache(cfg.db_path, cfg.cache_ttls)
     svc = DataService(adapter, cache)
-    logger.info("financial-mcp starting (source=%s)", adapter.source_name())
+    logger.info("%s", _startup_message(adapter.source_name()))
 
     journal = UndoJournal(cfg.db_path)
     server = build_server(svc, write_mode=cfg.write_mode, batch_cap=cfg.batch_cap, journal=journal)

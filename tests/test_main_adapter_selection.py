@@ -1,7 +1,9 @@
+import os
+
 import pytest
 
 from financial_mcp.config import Config
-from financial_mcp.main import build_adapter
+from financial_mcp.main import _startup_message, build_adapter
 from financial_mcp.monarch.community_adapter import CommunityAdapter
 from financial_mcp.monarch.csv_adapter import CsvAdapter
 
@@ -43,6 +45,21 @@ def test_live_without_session_falls_back_to_csv(monkeypatch, caplog):
         adapter = build_adapter(cfg)
     assert isinstance(adapter, CsvAdapter)
     assert any("financial-mcp-login" in r.message for r in caplog.records)
+
+
+def test_startup_message_stamps_pid_so_repeat_lines_are_distinct_processes():
+    # D-7: Claude Desktop spawns the stdio server several times during its
+    # connect handshake (probe -> intentional shutdown -> re-spawn), so the
+    # startup line legitimately appears 2-3x per launch -- one per PROCESS, not
+    # an in-process double-init. Stamping the pid makes the repeats read as
+    # distinct processes instead of looking like a server bug.
+    msg = _startup_message("live", pid=4242)
+    assert "pid=4242" in msg
+    assert "source=live" in msg
+
+
+def test_startup_message_defaults_to_current_pid():
+    assert f"pid={os.getpid()}" in _startup_message("csv")
 
 
 def test_live_without_session_and_no_csv_exits(monkeypatch):
