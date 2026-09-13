@@ -10,11 +10,6 @@ from financial_mcp.config import CacheTTLs, ensure_parent
 
 SCHEMA_VERSION = 2
 
-# Always-live (TTL 0) types are refetched every call, so a successful fetch
-# leaves age ~= 0. If age exceeds this grace window, the data is NOT live — it
-# is a stale fallback served after a failed fetch — and must report as stale.
-ALWAYS_LIVE_GRACE_SECONDS = 300
-
 
 class SqliteCache:
     def __init__(
@@ -114,16 +109,17 @@ class SqliteCache:
 
         Distinct from is_fresh(), which drives DataService's refetch decision and
         for a 0-TTL "always-live" type is deliberately always False (refetch every
-        call). For reporting, a just-fetched always-live type IS fresh: we grant it
-        a short grace window so a successful live pull reads as fresh, while an old
-        always-live entry (a failed-fetch fallback DataService served) honestly
-        reads as stale. Non-always-live types report their plain TTL freshness.
+        call). For reporting, an always-live type's cache age is irrelevant: since
+        every read refetches, the age measures only "time since anyone last asked,"
+        not the staleness of what a caller gets. So it reports fresh whenever it has
+        a successful stored fetch (last_refresh set); an invalidated/never-stored
+        entry (a failed-refetch leftover, last_refresh None) reports stale. Gating
+        an always-live type on age cried wolf -- accounts read stale minutes after
+        every fetch and dragged health_check to degraded on a healthy live session.
+        Non-always-live types report their plain TTL freshness.
         """
-        lr = self._last_refresh(data_type)
-        always_live = self._ttl_for(data_type) == 0 and lr is not None
-        if always_live:
-            age = self.age_seconds(data_type)
-            return age is not None and age < ALWAYS_LIVE_GRACE_SECONDS
+        if self._ttl_for(data_type) == 0:
+            return self._last_refresh(data_type) is not None
         return self.is_fresh(data_type)
 
     def freshness(self, data_type: str) -> dict:
@@ -160,9 +156,9 @@ class SqliteCache:
                 {
                     "data_type": data_type,
                     "age_seconds": self.age_seconds(data_type),
-                    # reported freshness (grace-aware for always-live types), so a
-                    # just-fetched always-live type like `accounts` doesn't read as
-                    # stale here and wrongly flip health_check to degraded.
+                    # reported freshness (see _reported_fresh), so an always-live
+                    # type like `accounts` -- refetched on every read -- doesn't
+                    # read as stale here and wrongly flip health_check to degraded.
                     "fresh": self._reported_fresh(data_type),
                     "source": source,
                     "count": len(json.loads(payload)),

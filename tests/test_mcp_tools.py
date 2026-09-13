@@ -16,6 +16,16 @@ from financial_mcp.monarch.models import (
 )
 
 
+class _MutableClock:
+    """Advanceable clock for exercising cache-age behavior (SqliteCache clock=)."""
+
+    def __init__(self, t=1000.0):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+
 class FakeAdapter(MonarchAdapter):
     def get_transactions(self):
         d = datetime.date(2026, 1, 2)
@@ -142,13 +152,17 @@ def test_health_check_degraded_when_source_not_live(tmp_path):
 
 def test_health_check_stays_ok_after_get_accounts_runs(tmp_path):
     # Regression: `accounts` is an always-live (TTL 0) type that _get stores on
-    # every call. cache_status must report a just-fetched always-live type as
-    # fresh (grace-aware), or health_check would flip to degraded on a perfectly
-    # healthy live session the moment get_accounts runs.
-    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    # every call. cache_status must report it fresh whenever it has a successful
+    # stored fetch -- regardless of the cache entry's age -- or health_check would
+    # flip to degraded on a perfectly healthy live session. The original grace-
+    # window fix only held for 300s after a fetch, so any real health check (e.g.
+    # 11h later) still cried wolf; this now holds for an aged entry too.
+    clock = _MutableClock(1000.0)
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs(), clock=clock)
     svc = DataService(LiveAdapter(), cache)
     server = build_server(svc)
     _tool(server, "get_accounts")()  # stores the always-live `accounts` type
+    clock.t += 11 * 3600  # 11 hours pass with no further access
     assert {r["data_type"]: r["fresh"] for r in svc.cache_status()}["accounts"] is True
     out = _tool(server, "health_check")()
     assert out["status"] == "ok"
