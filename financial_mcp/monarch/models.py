@@ -23,9 +23,23 @@ class Transaction(BaseModel):
 
     @staticmethod
     def synth_id(
-        date: datetime.date, merchant: str, amount: Decimal, original_statement: str
+        date: datetime.date,
+        merchant: str,
+        amount: Decimal,
+        original_statement: str,
+        ordinal: int = 0,
     ) -> str:
+        """Deterministic id for a transaction that has no native Monarch id.
+
+        `ordinal` disambiguates two genuinely-distinct rows that share the same
+        (date, merchant, amount, original_statement) — e.g. two identical CSV
+        purchases — so they don't collapse into one id and get summed as one.
+        ordinal=0 (the default) appends nothing, keeping the id byte-identical to
+        the pre-ordinal hash so the live adapter's id fallback is unchanged.
+        """
         key = f"{date.isoformat()}|{merchant}|{amount}|{original_statement}"
+        if ordinal:
+            key += f"|{ordinal}"
         return hashlib.sha1(key.encode("utf-8")).hexdigest()
 
 

@@ -192,6 +192,7 @@ class CommunityAdapter(MonarchAdapter):
 
     def get_transactions(self) -> list[Transaction]:
         out: list[Transaction] = []
+        seen: set[str] = set()
         offset = 0
         while True:
             variables = {
@@ -203,7 +204,15 @@ class CommunityAdapter(MonarchAdapter):
             data = self._run(self._transport("GetTransactionsList", GET_TRANSACTIONS, variables))
             block = data.get("allTransactions", {})
             results = block.get("results", [])
-            out.extend(_to_transaction(r) for r in results)
+            # Dedupe by id across pages: a page boundary that shifts (new txn
+            # imported mid-pagination, or an overlapping window) otherwise repeats
+            # the same id, double-counting a real transaction in every total.
+            for r in results:
+                txn = _to_transaction(r)
+                if txn.id in seen:
+                    continue
+                seen.add(txn.id)
+                out.append(txn)
             if not results:
                 break
             offset += len(results)
