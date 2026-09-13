@@ -673,6 +673,9 @@ def build_server(
         Use it to cross-check net worth and to spot accounts that have silently gone
         carry-forward (a dead data feed drops their balance out of net worth). Pass
         as_of=YYYY-MM-DD for a historical date; default is the latest snapshot held.
+        Note: an as_of AFTER the latest snapshot (or before any snapshot) has no
+        fresh balance for any account, so every account is reported carry-forward /
+        no_snapshot and net_worth is 0 — query a date within the snapshot range.
         """
         if as_of is not None:
             try:

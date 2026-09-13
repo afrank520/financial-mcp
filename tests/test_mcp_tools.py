@@ -140,6 +140,21 @@ def test_health_check_degraded_when_source_not_live(tmp_path):
     assert any("not live" in r for r in out["reasons"])
 
 
+def test_health_check_stays_ok_after_get_accounts_runs(tmp_path):
+    # Regression: `accounts` is an always-live (TTL 0) type that _get stores on
+    # every call. cache_status must report a just-fetched always-live type as
+    # fresh (grace-aware), or health_check would flip to degraded on a perfectly
+    # healthy live session the moment get_accounts runs.
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(LiveAdapter(), cache)
+    server = build_server(svc)
+    _tool(server, "get_accounts")()  # stores the always-live `accounts` type
+    assert {r["data_type"]: r["fresh"] for r in svc.cache_status()}["accounts"] is True
+    out = _tool(server, "health_check")()
+    assert out["status"] == "ok"
+    assert out["reasons"] == []
+
+
 def test_health_check_degraded_when_a_type_is_stale(tmp_path):
     cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
     svc = DataService(LiveAdapter(), cache)
