@@ -129,6 +129,20 @@ def test_get_accounts_tool(tmp_path):
     assert accts[0]["latest_balance"] == "100"
 
 
+def test_cached_envelope_reports_effective_adapter_source(tmp_path):
+    # source must come from the adapter actually in use, not Config.source.
+    server = build_server(_service(tmp_path))  # FakeAdapter.source_name() -> "fake"
+    result = _tool(server, "get_accounts")()
+    assert result["source"] == "fake"
+
+
+def test_live_envelope_reports_effective_adapter_source(tmp_path):
+    server = build_server(_service(tmp_path))
+    result = _tool(server, "recurring_summary")(start="2026-06-01", end="2026-06-30")
+    assert result["source"] == "fake"
+    assert result["stale"] is False  # live path
+
+
 def test_get_accounts_enriches_carry_forward_and_keeps_all_accounts(tmp_path):
     # a2 has only a stale snapshot -> carry-forward; a3 has NO snapshot series and
     # must still appear (hybrid full coverage, not snapshot-only which would drop it).

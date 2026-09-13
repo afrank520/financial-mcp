@@ -150,6 +150,14 @@ class DataService:
         return self._adapter.update_transaction_rule(
             rule_id, operator, value, set_category_id, set_merchant)
 
+    def source_name(self) -> str:
+        """The effective data source of the adapter actually in use ("live"/"csv").
+
+        Comes from the adapter, NOT Config.source: the 8/28–9/1 outage was
+        Config.source=live while build_adapter had silently fallen back to CSV,
+        so keying freshness/health on Config would reproduce that dishonesty."""
+        return self._adapter.source_name()
+
     def freshness(self, data_type: str) -> dict:
         """Freshness metadata (as_of, age_seconds, fresh) for one data type."""
         return self._cache.freshness(data_type)

@@ -84,7 +84,14 @@ class SqliteCache:
         row = self._conn.execute(
             "SELECT last_refresh FROM cache_entries WHERE data_type=?", (data_type,)
         ).fetchone()
-        return row[0] if row else None
+        if row is None:
+            return None
+        lr = row[0]
+        # 0 is the invalidate() sentinel, never a real clock value (store() always
+        # writes self._clock()). Treat it as never-refreshed so age/as_of report
+        # None rather than leaking a 1970-01-01 epoch-0 timestamp when a failed
+        # refetch leaves an invalidated entry behind.
+        return None if not lr else lr
 
     def age_seconds(self, data_type: str) -> float | None:
         lr = self._last_refresh(data_type)

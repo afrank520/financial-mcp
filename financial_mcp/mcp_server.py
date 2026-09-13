@@ -53,6 +53,7 @@ def build_server(
             "as_of": f["as_of"],
             "age_hours": None if age_s is None else round(age_s / 3600, 1),
             "stale": not f["fresh"],
+            "source": svc.source_name(),
             "count": len(data) if count is None else count,
             "data": data,
         }
@@ -68,6 +69,7 @@ def build_server(
             "as_of": now,
             "age_hours": 0.0,
             "stale": False,
+            "source": svc.source_name(),
             "count": len(data) if count is None else count,
             "data": data,
         }

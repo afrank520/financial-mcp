@@ -131,6 +131,24 @@ def test_load_returns_empty_for_schema_version_mismatch(tmp_path):
     assert c.load("balance_history") == []
 
 
+def test_invalidated_type_reports_never_refreshed_not_1970(tmp_path):
+    # invalidate() sets last_refresh=0. If a refetch then fails and stale is
+    # served, freshness must report the entry as never-refreshed (as_of=None,
+    # age=None, stale) rather than leaking a 1970-01-01 epoch-0 timestamp.
+    clock = FakeClock(t=1000.0)
+    c = _cache(tmp_path, clock)
+    c.store("transactions", [{"id": "1"}], source="csv")
+    c.invalidate("transactions")
+    f = c.freshness("transactions")
+    assert f["as_of"] is None
+    assert f["age_seconds"] is None
+    assert f["fresh"] is False
+    # and status() must not leak 1970 either
+    row = {r["data_type"]: r for r in c.status()}["transactions"]
+    assert row["age_seconds"] is None
+    assert row["fresh"] is False
+
+
 def test_persists_across_instances(tmp_path):
     clock = FakeClock()
     _cache(tmp_path, clock).store("balances", [{"account": "Checking"}], source="csv")
