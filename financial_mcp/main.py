@@ -5,13 +5,15 @@ import os
 
 from financial_mcp.cache.sqlite_cache import SqliteCache
 from financial_mcp.cache.undo_journal import UndoJournal
-from financial_mcp.config import Config, load_config
+from financial_mcp.config import Config, load_config, resolve_user_path
 from financial_mcp.data_service import DataService
 from financial_mcp.credentials import make_credential_store
 from financial_mcp.mcp_server import build_server
 from financial_mcp.monarch.adapter import MonarchAdapter
 from financial_mcp.monarch.community_adapter import CommunityAdapter
 from financial_mcp.monarch.csv_adapter import CsvAdapter
+from financial_mcp.steward.ledger import Ledger
+from financial_mcp.steward.steward import Steward
 from financial_mcp.utils.logging import configure_logging
 
 logger = logging.getLogger("financial_mcp")
@@ -57,7 +59,15 @@ def main() -> None:
     logger.info("%s", _startup_message(adapter.source_name()))
 
     journal = UndoJournal(cfg.db_path)
-    server = build_server(svc, write_mode=cfg.write_mode, batch_cap=cfg.batch_cap, journal=journal)
+    # findings.db lives beside the session/policy under ~/.financial_mcp (spec §5.2)
+    steward = Steward(svc, Ledger(resolve_user_path("findings.db")))
+    server = build_server(
+        svc,
+        write_mode=cfg.write_mode,
+        batch_cap=cfg.batch_cap,
+        journal=journal,
+        steward=steward,
+    )
     server.run()
 
 

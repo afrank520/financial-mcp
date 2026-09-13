@@ -33,6 +33,7 @@ def build_server(
     write_mode: str = "off",
     batch_cap: int = 200,
     journal=None,
+    steward=None,
 ) -> FastMCP:
     server = FastMCP("financial-mcp")
 
@@ -1228,7 +1229,79 @@ def build_server(
         """
         return _guard(lambda: {"history": journal.history()})
 
+    if steward is not None:
+        _register_steward_tools(server, steward, _guard)
+
     return server
+
+
+def _register_steward_tools(server, steward, _guard) -> None:
+    """The Steward layer (spec §11 Phase 2): integrity checks + the findings ledger.
+
+    Registered only when a Steward is wired in, so the existing read/write tools
+    and their tests are unaffected when it isn't.
+    """
+
+    @server.tool()
+    def integrity_check(as_of: str | None = None) -> dict:
+        """Run the integrity detectors (I-1..I-8) over the live cache and return
+        the ledger-reconciled brief: `items` (high-confidence issues first, then
+        largest dollars), at most one `needs_input` question, a `backlog_count`,
+        and `trust` — which is "degraded" whenever any high integrity finding
+        surfaces, meaning the other numbers are unverified until it's resolved.
+
+        This is the steward's honesty gate: it catches a 529 silently flipping to
+        carry-forward (dollars dropping out of net worth), a stale feed, a net-worth
+        recompute mismatch, or a new account entity, and remembers each finding
+        across runs so a dismissed one stays quiet unless its dollars jump.
+        """
+        parsed = datetime.date.fromisoformat(as_of) if as_of else None
+        return _guard(lambda: steward.integrity_check(parsed))
+
+    @server.tool()
+    def findings_list(
+        status: str | None = None,
+        detector: str | None = None,
+        limit: int | None = None,
+    ) -> dict:
+        """List findings from the ledger, highest priority first. Optionally filter
+        by status (new/open/approved/needs_input/snoozed/dismissed/resolved) or by
+        detector id (e.g. "I-3"), and cap with limit.
+        """
+        return _guard(lambda: {"findings": steward.ledger.list(status, detector, limit)})
+
+    @server.tool()
+    def findings_update(
+        finding_id: str,
+        status: str,
+        reason: str | None = None,
+        snooze_until: str | None = None,
+    ) -> dict:
+        """Change a finding's status. Dismissing REQUIRES a reason (recorded so the
+        finding stays suppressed until its dollars materially change); snoozing
+        REQUIRES a snooze_until date (YYYY-MM-DD) after which it reappears.
+        """
+        def _run():
+            try:
+                return {"finding": steward.ledger.update(finding_id, status, reason, snooze_until)}
+            except KeyError:
+                return {"error": f"no finding with id {finding_id}"}
+            except ValueError as exc:
+                return {"error": str(exc)}
+
+        return _guard(_run)
+
+    @server.tool()
+    def policy_get() -> dict:
+        """Return the full parsed policy.yaml (household rules, thresholds, goals)."""
+        return _guard(lambda: {"policy": steward.policy().raw})
+
+    @server.tool()
+    def policy_validate() -> dict:
+        """Report required-but-unfilled policy goals (cash_floor, HELOC paydown
+        target + apr, RSU vest dates) so advice detectors can ask rather than guess.
+        """
+        return _guard(lambda: steward.policy().validate())
 
 
 def _jsonify(rows: list[dict]) -> list[dict]:
