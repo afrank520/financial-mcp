@@ -170,6 +170,68 @@ def test_refresh_forces_refetch(tmp_path):
     assert adapter.calls == 2
 
 
+def test_refresh_one_type_reports_refreshed(tmp_path):
+    adapter = FakeAdapter()
+    svc, _ = _svc(tmp_path, FakeClock(), adapter)
+    out = svc.refresh("transactions")
+    assert out == {"refreshed": ["transactions"], "failed": []}
+
+
+def test_refresh_failure_is_reported_and_preserves_prior_data(tmp_path):
+    # A failed refetch must NOT be reported as refreshed, must NOT wipe the
+    # prior cache, and must NOT leave an epoch-0 (1970) timestamp behind.
+    clock = FakeClock(1000.0)
+    adapter = FakeAdapter()
+    svc, cache = _svc(tmp_path, clock, adapter)
+    svc.transactions()  # populate cache with good data + a real timestamp
+    good_as_of = cache.freshness("transactions")["as_of"]
+    assert good_as_of is not None
+
+    adapter.fail = True
+    out = svc.refresh("transactions")
+    assert out["refreshed"] == []
+    assert out["failed"][0]["type"] == "transactions"
+    assert "monarch down" in out["failed"][0]["error"]
+    # prior data + timestamp intact — no wipe, no epoch-0 leak
+    assert cache.load("transactions") != []
+    assert cache.freshness("transactions")["as_of"] == good_as_of
+
+
+def test_refresh_all_partial_failure_splits_refreshed_and_failed(tmp_path):
+    adapter = FakeAdapter()
+    adapter.fail = True  # only get_transactions raises
+    svc, _ = _svc(tmp_path, FakeClock(), adapter)
+    out = svc.refresh()  # all types
+    assert out["failed"] == [{"type": "transactions", "error": "monarch down"}]
+    assert "transactions" not in out["refreshed"]
+    assert {"balances", "accounts", "balance_history", "networth",
+            "categories", "holdings"} <= set(out["refreshed"])
+
+
+def test_refresh_unknown_type_raises_valueerror(tmp_path):
+    svc, _ = _svc(tmp_path, FakeClock(), FakeAdapter())
+    try:
+        svc.refresh("bogus")
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "bogus" in str(e)
+
+
+def test_refresh_reraises_typed_auth_error(tmp_path):
+    from financial_mcp.monarch.community_adapter import SessionExpiredError
+
+    class _ExpiredAdapter(FakeAdapter):
+        def get_transactions(self):
+            raise SessionExpiredError("session expired")
+
+    svc, _ = _svc(tmp_path, FakeClock(), _ExpiredAdapter())
+    try:
+        svc.refresh("transactions")
+        assert False, "expected SessionExpiredError to propagate"
+    except SessionExpiredError:
+        pass
+
+
 def test_accounts_never_cached(tmp_path):
     clock = FakeClock()
     adapter = FakeAdapter()

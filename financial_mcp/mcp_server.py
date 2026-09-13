@@ -788,9 +788,19 @@ def build_server(
         budget), or explicitly wants the very latest data instead of the cached
         copy. data_type is one of: transactions, balances, accounts,
         balance_history, networth, categories, holdings.
+
+        Returns an honest per-type outcome: {refreshed: [...], failed: [{type,
+        error}], source}. A type that fails to refetch keeps its prior cached
+        data and is listed in `failed` — it is never silently reported as
+        refreshed, and a failed refetch never leaves a 1970 epoch-0 timestamp.
         """
-        svc.refresh(data_type)
-        return {"refreshed": data_type or "all"}
+        try:
+            outcome = svc.refresh(data_type)
+        except ValueError as exc:
+            return {"error": str(exc)}
+        except (SessionExpiredError, CloudflareBlockedError) as exc:
+            return {"error": f"{exc}. Re-authenticate: financial-mcp-login"}
+        return {**outcome, "source": svc.source_name()}
 
     @server.tool()
     def recategorize_transaction(transaction_id: str, category: str) -> dict:

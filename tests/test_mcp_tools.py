@@ -174,6 +174,45 @@ def test_live_envelope_reports_effective_adapter_source(tmp_path):
     assert result["stale"] is False  # live path
 
 
+def test_refresh_cache_reports_per_type_outcome_and_source(tmp_path):
+    server = build_server(_service(tmp_path))
+    out = _tool(server, "refresh_cache")("transactions")
+    assert out["refreshed"] == ["transactions"]
+    assert out["failed"] == []
+    assert out["source"] == "fake"
+
+
+def test_refresh_cache_partial_failure_lists_failed(tmp_path):
+    class _PartlyDown(FakeAdapter):
+        def get_transactions(self):
+            raise RuntimeError("monarch down")
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    server = build_server(DataService(_PartlyDown(), cache))
+    out = _tool(server, "refresh_cache")()  # all types
+    assert {"type": "transactions", "error": "monarch down"} in out["failed"]
+    assert "transactions" not in out["refreshed"]
+
+
+def test_refresh_cache_typed_error_surfaces_as_error(tmp_path):
+    from financial_mcp.monarch.community_adapter import SessionExpiredError
+
+    class _Expired(FakeAdapter):
+        def get_transactions(self):
+            raise SessionExpiredError("session expired")
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    server = build_server(DataService(_Expired(), cache))
+    out = _tool(server, "refresh_cache")("transactions")
+    assert "financial-mcp-login" in out["error"]
+
+
+def test_refresh_cache_unknown_type_returns_error(tmp_path):
+    server = build_server(_service(tmp_path))
+    out = _tool(server, "refresh_cache")("bogus")
+    assert "bogus" in out["error"]
+
+
 def test_get_accounts_enriches_carry_forward_and_keeps_all_accounts(tmp_path):
     # a2 has only a stale snapshot -> carry-forward; a3 has NO snapshot series and
     # must still appear (hybrid full coverage, not snapshot-only which would drop it).
