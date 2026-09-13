@@ -129,6 +129,35 @@ def test_balances_derived_from_accounts():
     assert all(b.date == datetime.date(2026, 2, 1) for b in bals)
 
 
+def test_accounts_prefer_display_balance_and_expose_trust_fields():
+    # A funded manual/asset account whose currentBalance is null but displayBalance
+    # is real — reading currentBalance alone reported it as $0 (the D-1 bug).
+    data = {
+        "accounts": [
+            {
+                "id": "acc-1",
+                "displayName": "Coinbase",
+                "currentBalance": None,
+                "displayBalance": 4510.98,
+                "includeInNetWorth": True,
+            },
+            {
+                "id": "acc-2",
+                "displayName": "Dead Corp Card",
+                "currentBalance": -579.80,
+                "displayBalance": -579.80,
+                "includeInNetWorth": False,
+            },
+        ]
+    }
+    accts = {a.name: a for a in _adapter(transport=_stub_transport(data)).get_accounts()}
+    assert accts["Coinbase"].latest_balance == Decimal("4510.98")  # not $0
+    assert accts["Coinbase"].account_id == "acc-1"
+    assert accts["Coinbase"].include_in_net_worth is True
+    assert accts["Dead Corp Card"].account_id == "acc-2"
+    assert accts["Dead Corp Card"].include_in_net_worth is False
+
+
 def test_transactions_paginated_and_mapped():
     txns = _adapter().get_transactions()
     assert len(txns) == 3  # 2 pages stitched

@@ -81,7 +81,16 @@ class CsvAdapter(MonarchAdapter):
             if cur is None or bal.date > cur.date:
                 latest[bal.account] = bal
         return [
-            Account(name=name, latest_balance=b.balance, as_of=b.date)
+            # CSV has no stable account id, so the name is the identity. The
+            # balance-row date IS the real observation date here, so it is an
+            # honest snapshot_date; CSV has no carry-forward concept.
+            Account(
+                name=name,
+                latest_balance=b.balance,
+                as_of=b.date,
+                account_id=name,
+                snapshot_date=b.date,
+            )
             for name, b in sorted(latest.items())
         ]
 

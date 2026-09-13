@@ -129,6 +129,39 @@ def test_get_accounts_tool(tmp_path):
     assert accts[0]["latest_balance"] == "100"
 
 
+def test_get_accounts_enriches_carry_forward_and_keeps_all_accounts(tmp_path):
+    # a2 has only a stale snapshot -> carry-forward; a3 has NO snapshot series and
+    # must still appear (hybrid full coverage, not snapshot-only which would drop it).
+    class A(FakeAdapter):
+        def get_accounts(self):
+            d = datetime.date(2026, 1, 2)
+            return [
+                Account(name="Checking", latest_balance=Decimal("100"), as_of=d, account_id="a1"),
+                Account(name="Old 403b", latest_balance=Decimal("89800"), as_of=d, account_id="a2"),
+                Account(name="Brand New 529", latest_balance=Decimal("200"), as_of=d, account_id="a3"),
+            ]
+
+        def get_balance_history(self):
+            return [
+                BalanceSnapshot(account_id="a1", display_name="Checking",
+                                date=datetime.date(2026, 1, 2), balance=Decimal("100"),
+                                include_in_net_worth=True),
+                BalanceSnapshot(account_id="a2", display_name="Old 403b",
+                                date=datetime.date(2025, 12, 1), balance=Decimal("89800"),
+                                include_in_net_worth=True),
+            ]
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    server = build_server(DataService(A(), cache))
+    accts = {a["account_id"]: a for a in _tool(server, "get_accounts")()["data"]}
+    assert set(accts) == {"a1", "a2", "a3"}  # parity: no account dropped
+    assert accts["a1"]["is_carry_forward"] is False
+    assert accts["a1"]["snapshot_date"] == "2026-01-02"
+    assert accts["a2"]["is_carry_forward"] is True   # stale snapshot vs freshest data
+    assert accts["a3"]["is_carry_forward"] is False  # zero-snapshot account, kept
+    assert accts["a3"]["snapshot_date"] is None
+
+
 def test_get_accounts_envelope_carries_freshness(tmp_path):
     server = build_server(_service(tmp_path))
     result = _tool(server, "get_accounts")()

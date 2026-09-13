@@ -93,11 +93,24 @@ def build_server(
     def get_accounts() -> dict:
         """List financial accounts with their latest known balance.
 
-        Returns an envelope: as_of (when the data was last synced from Monarch),
-        age_hours, stale, count, and data. If stale is true or age_hours is
-        large, offer to refresh_cache before relying on the numbers.
+        Each account carries account_id, include_in_net_worth, is_carry_forward,
+        and snapshot_date (the real date the balance was observed). is_carry_forward
+        means the account has no fresh snapshot and Monarch is repeating its last
+        known balance — such balances are excluded from net worth.
+
+        Returns an envelope: as_of (when accounts were last synced), age_hours,
+        stale, source, count, and data. If stale is true or age_hours is large,
+        offer to refresh_cache before relying on the numbers.
         """
-        return _guard(lambda: _envelope("accounts", _dump(svc.accounts())))
+        def _run():
+            # Full account list from GetAccounts (never drops an account), then
+            # enrich carry-forward/snapshot_date from balance-history snapshots.
+            # Envelope against "accounts" (the primary type, which IS stored) so
+            # freshness stays honest.
+            accts = svc.accounts()
+            enriched = balances.merge_carry_forward(accts, svc.balance_history())
+            return _envelope("accounts", _dump(enriched))
+        return _guard(_run)
 
     @server.tool()
     def get_transactions(limit: int = DEFAULT_TXN_ROWS) -> dict:

@@ -39,6 +39,16 @@ class Account(BaseModel):
     name: str
     latest_balance: Decimal
     as_of: datetime.date
+    # Trust fields (Increment 1 "Honest Data"). Defaults keep older callers and
+    # the CSV path working; the live adapter + the get_accounts tool populate them.
+    account_id: str = ""
+    include_in_net_worth: bool = True
+    # is_carry_forward / snapshot_date are the honest per-account observation
+    # facts. The adapter cannot know them (no snapshot access), so they default
+    # here and the get_accounts tool enriches them from balance-history snapshots
+    # (see analytics.balances.merge_carry_forward).
+    is_carry_forward: bool = False
+    snapshot_date: datetime.date | None = None
 
 
 class BalanceSnapshot(BaseModel):

@@ -3,7 +3,46 @@ from __future__ import annotations
 import datetime
 from collections import defaultdict
 
-from financial_mcp.monarch.models import BalanceSnapshot
+from financial_mcp.monarch.models import Account, BalanceSnapshot
+
+
+def latest_snapshot_date(snapshots: list[BalanceSnapshot]) -> datetime.date | None:
+    """The most recent date any account reported a snapshot.
+
+    Used as the carry-forward reference instead of literal "today": an account is
+    carry-forward when its own latest snapshot predates the freshest data we hold.
+    This is robust to a day-stale cache — literal "today" would wrongly mark every
+    account carry-forward whenever the pull lags by a day, collapsing net worth."""
+    return max((s.date for s in snapshots), default=None)
+
+
+def merge_carry_forward(
+    accounts: list[Account],
+    snapshots: list[BalanceSnapshot],
+    reference_date: datetime.date | None = None,
+) -> list[Account]:
+    """Enrich each Account's is_carry_forward / snapshot_date from balance snapshots.
+
+    Full-coverage join: every input account is returned. An account with no
+    snapshot series keeps its defaults (is_carry_forward=False, whatever
+    snapshot_date the adapter set) rather than being dropped — a snapshot-only
+    rebuild would silently lose brand-new / manual / zero-activity accounts.
+    reference_date defaults to the latest snapshot date present."""
+    ref = reference_date or latest_snapshot_date(snapshots)
+    if ref is None:
+        return list(accounts)
+    as_of_rows = {r["account_id"]: r for r in balance_as_of(snapshots, ref)}
+    out: list[Account] = []
+    for a in accounts:
+        row = as_of_rows.get(a.account_id)
+        if row is not None and row["snapshot_date"] is not None:
+            out.append(a.model_copy(update={
+                "is_carry_forward": row["is_carry_forward"],
+                "snapshot_date": datetime.date.fromisoformat(row["snapshot_date"]),
+            }))
+        else:
+            out.append(a)
+    return out
 
 
 def _as_of_one(points: list[BalanceSnapshot], target: datetime.date) -> BalanceSnapshot | None:

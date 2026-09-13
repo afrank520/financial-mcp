@@ -65,10 +65,18 @@ class CloudflareBlockedError(RuntimeError):
 
 
 def _to_account(d: dict, as_of: datetime.date) -> Account:
+    # displayBalance is the value Monarch shows; currentBalance is null for many
+    # manual/asset/investment accounts, so reading currentBalance alone reported a
+    # funded account as $0. Prefer displayBalance, fall back to currentBalance.
+    bal = d.get("displayBalance")
+    if bal is None:
+        bal = d.get("currentBalance")
     return Account(
         name=d["displayName"],
-        latest_balance=Decimal(str(d.get("currentBalance") or 0)),
+        latest_balance=Decimal(str(bal or 0)),
         as_of=as_of,
+        account_id=str(d.get("id") or ""),
+        include_in_net_worth=bool(d.get("includeInNetWorth", True)),
     )
 
 
