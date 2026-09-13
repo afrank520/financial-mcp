@@ -1,0 +1,64 @@
+version: 1
+household:
+  filing_status: married_joint
+  state: NY
+  ny_marginal_rate: 0.0685        # verify annually
+cash:
+  cash_floor: null                # REQUIRED for A-3/A-10 — Adam to fill
+  parking_institutions: ["Capital One", "Apple"]   # windfall parking, separate from BofA checking
+  windfall_min: 2000
+debt:
+  heloc:
+    account_id: "251845388366920938"
+    limit: 350000
+    paydown_target: null          # REQUIRED for A-10 — Adam to fill (amount + date)
+    apr: null                     # not in Monarch; needed for cash-drag math
+    draws_must_be_named: true
+  amex_float:
+    account_id: "233056032900660408"
+    suppress_midcycle_balance: true
+    payment_cadence: "single sweep ~16th; autopay backstop"
+income:
+  rsu:
+    sell_at_vest: true
+    vest_dates: []                # Adam to fill
+    planning_anchor: "share_count x current_price"   # never the $97K offer value
+  ss_cap_stepup: { months: [9,10,11,12], approx_monthly: 1187, january_stepdown: 1850 }
+exclusions:
+  household_cashflow_excludes:
+    categories: ["B'Nai Mitzvah", "B'Nai Gift"]
+    accounts_by_name_prefix: ["Braden Savings", "Alexis Savings", "Colton Savings", "Dylan Savings", "Elaina Savings"]
+education:
+  ny529_deduction_cap: 10000
+  per_child_targets: {}           # optional
+categorization:
+  liability_payments_as_expense: true
+  do_not_merge_merchant_families: ["Miss Sue", "Capital One"]
+  normalization_stoplist: ["New York", "Citi", "NY", "Transfer", "Payment", "Deposit"]
+  taxonomy_fixes:
+    - { category: "Camp Tuition", move_to_group: "Children" }
+    - { category: "Veterinary", move_to_group: "Health & Wellness" }
+    - { category: "Home Insurance", move_to_group: "Housing" }
+    - { category: "Music", move_to_group: "Travel & Lifestyle" }   # worklist said "Entertainment"; no such group exists today — confirm with Adam
+    - { category: "Books & Supplies", move_to_group: "Education" }
+    - { category: "Car Wash", move_to_group: "Auto & Transport" }
+    - { category: "Investments", move_to_group: "Savings & Investments" }
+    - { rename: "Kids Sports Equiment", to: "Kids Sports Equipment" }
+    - { rename: "School Technology ", to: "School Technology" }
+    - { rename: "Executive  Coaching", to: "Executive Coaching" }
+thresholds:
+  stale_days: 3
+  weekly_band_window_weeks: 26
+  weekly_band_consecutive: 2
+  yoy_min_dollars: 250
+  yoy_min_pct: 0.25
+  budget_miscal_min_dollars: 100
+  budget_miscal_min_pct: 0.5
+  recurring_drift_pct: 0.05
+  high_avg_verify: 500
+calendar:
+  - { month: 10, id: "A-7", title: "W-4 calibration for RSU over-withholding" }
+  - { month: 11, id: "A-8", title: "Open enrollment — FSA sizing" }
+  - { month: 10, day: 1, until: "12-31", id: "A-6", title: "NY 529 deduction headroom" }
+  - { month: 1, id: "A-5", title: "SS restart — take-home steps down" }
+  - { month: 9, id: "A-5", title: "SS cap step-up — assign the dollars" }
