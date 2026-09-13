@@ -52,9 +52,14 @@ REGISTRY: dict[str, RegistryEntry] = dict(
         _entry("237313797074599169", "Colton 529 (03)", "live", "watch_carry_forward"),
         _entry("237313797134368002", "Dylan 529 (04)", "live", "watch_carry_forward"),
         _entry("237313797209865475", "Elaina 529 (05)", "live", "watch_carry_forward"),
-        # 529 old entities (01–05): spec gives the range endpoints; enumerate those.
-        _entry("169485859791191359", "529 old entity (range start)", "excluded_legacy"),
-        _entry("169485860105764163", "529 old entity (range end)", "excluded_legacy"),
+        # 529 old entities (01–05) from the March platform migration — duplicate
+        # display names of the live 529s, all excluded from net worth. Enumerated
+        # from the live 2026-09-13 ids so I-8 doesn't nag about the middle three.
+        _entry("169485859791191359", "Braden 529 (01, old entity)", "excluded_legacy"),
+        _entry("169485859965254976", "Alexis 529 (02, old entity)", "excluded_legacy"),
+        _entry("169485860012440897", "Colton 529 (03, old entity)", "excluded_legacy"),
+        _entry("169485860059626818", "Dylan 529 (04, old entity)", "excluded_legacy"),
+        _entry("169485860105764163", "Elaina 529 (05, old entity)", "excluded_legacy"),
         _entry("169483620903173697", "Corporate Card (…1002)", "excluded"),
         _entry("233056033218378937", "Corporate Card (…1009)", "excluded"),
     ]

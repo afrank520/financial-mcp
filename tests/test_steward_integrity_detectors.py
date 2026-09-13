@@ -116,6 +116,19 @@ def test_i3_fires_for_persistent_non_watch_carry_forward_without_transition():
     assert len(out) == 1 and out[0].detector == "I-3" and out[0].dollars_at_stake == 12500.00
 
 
+def test_i3_silent_for_carry_forward_account_excluded_from_net_worth():
+    # Live-prove 2026-09-13 regression: an account that is carry-forward AND
+    # excluded from net worth (the legacy 529 range, excluded cards) distorts
+    # nothing — $0 left net worth — so I-3 must NOT fire, even though it's
+    # carry-forward, not registry-expected, and (here) not watched.
+    excluded = _acct("169485859965254976", "Alexis 529 (02, old entity)",
+                     33000.00, cf=True, inw=False)
+    out = I.detect_i3_carry_forward_transition(
+        _ctx(accounts=[excluded], previous_carry_forward={"169485859965254976": False})
+    )
+    assert out == []
+
+
 def test_i3_stable_id_across_runs():
     lexi = _acct(LEXI_529, "Lexi 529 (02)", 40140.98, cf=True)
     a = I.detect_i3_carry_forward_transition(_ctx(accounts=[lexi], previous_carry_forward={LEXI_529: False}))[0]

@@ -125,10 +125,19 @@ def detect_i3_carry_forward_transition(ctx: IntegrityContext) -> list[Finding]:
     for a in ctx.accounts:
         if not a.is_carry_forward or registry.is_expected_carry_forward(a.account_id):
             continue
+        # An account already excluded from net worth can't distort it by carrying
+        # forward — nothing "left" (removed would be $0), so firing high here just
+        # cries wolf and flips trust to "degraded" on noise. A carry-forward
+        # excluded account is the registry's / I-8's concern, not I-3's.
+        # (Live-prove 2026-09-13: without this, the excluded legacy-529 range plus
+        # the excluded Corporate Card / Tracey loan fired 7 high I-3s at $0.00 and
+        # falsely degraded trust.)
+        if not a.include_in_net_worth:
+            continue
         was_cf = ctx.previous_carry_forward.get(a.account_id)
         transitioned = was_cf is False  # explicitly known-not-carry-forward before
         watched = registry.is_watch_carry_forward(a.account_id)
-        removed = abs(float(a.latest_balance)) if a.include_in_net_worth else 0.0
+        removed = abs(float(a.latest_balance))
         if watched:
             prefix, verb = "529 flipped to carry-forward", "silently left"
         elif transitioned:
