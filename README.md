@@ -15,6 +15,10 @@ never leaves your machine except to talk to Monarch's own API.
 > short copy-paste path for Claude Code). The rest of this README is the overview;
 > [`docs/INSTALL.md`](docs/INSTALL.md) is the concise technical reference.
 
+> 🔄 **Already installed and want the latest version?** See
+> **[UPDATING.md](UPDATING.md)** — dead-simple update steps that keep your
+> Monarch sign-in and data intact.
+
 > 💻 **This runs on your computer — so it works where your computer is.** The
 > server runs locally on the Mac you install it on, and your Monarch session is
 > stored in a secured file on that Mac. Claude can use these tools **only on that
