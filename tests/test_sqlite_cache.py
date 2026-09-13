@@ -75,17 +75,30 @@ def test_freshness_always_live_fresh_when_recent(tmp_path):
     clock = FakeClock(t=1000.0)
     c = _cache(tmp_path, clock)
     c.store("accounts", [{"name": "Checking"}], source="csv")
-    clock.t = 1010.0  # just pulled, within grace window
+    clock.t = 1010.0  # just pulled
     assert c.freshness("accounts")["fresh"] is True
 
 
-def test_freshness_always_live_stale_when_old(tmp_path):
-    # An old always-live entry means DataService served a failed-fetch fallback:
-    # it must honestly report stale, not pretend the data is live.
+def test_freshness_always_live_fresh_even_when_cache_entry_is_old(tmp_path):
+    # An always-live type is refetched on every read, so the age of the cached
+    # entry says nothing about what a caller gets -- it says only how long since
+    # anyone last asked. Reporting it "stale" after a few minutes cried wolf and
+    # dragged health_check to degraded on a perfectly healthy live session.
+    # As long as it has a successful stored fetch, it reports fresh.
     clock = FakeClock(t=1000.0)
     c = _cache(tmp_path, clock)
-    c.store("accounts", [{"name": "Checking"}], source="csv")
-    clock.t = 1000.0 + 3600  # 1h old -> beyond the 5min grace window
+    c.store("accounts", [{"name": "Checking"}], source="live")
+    clock.t = 1000.0 + 11 * 3600  # 11h since last access -- still fresh-on-read
+    assert c.freshness("accounts")["fresh"] is True
+
+
+def test_freshness_always_live_stale_when_invalidated(tmp_path):
+    # invalidate() zeroes last_refresh (a failed-refetch leftover). That is the
+    # one honest "stale" for an always-live type: no successful stored fetch.
+    clock = FakeClock(t=1000.0)
+    c = _cache(tmp_path, clock)
+    c.store("accounts", [{"name": "Checking"}], source="live")
+    c.invalidate("accounts")
     assert c.freshness("accounts")["fresh"] is False
 
 
