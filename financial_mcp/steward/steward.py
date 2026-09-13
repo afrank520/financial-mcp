@@ -107,16 +107,23 @@ class Steward:
         items.sort(key=lambda f: (0 if f["confidence"] == "high" else 1, -f["dollars_at_stake"]))
         needs_input.sort(key=lambda f: -f["dollars_at_stake"])
         trust = "degraded" if any(f["confidence"] == "high" for f in items) else "ok"
+        shown_needs_input = needs_input[:1]  # spec §5.4: at most one per run
         return {
             "trust": trust,
             "items": items,
-            "needs_input": needs_input[:1],  # spec §5.4: at most one per run
+            "needs_input": shown_needs_input,
+            # Count the questions held back by the one-per-run cap so the brief can
+            # never say "0 open" while questions wait unseen in the ledger. Query
+            # them with findings_list(status="needs_input").
+            "needs_input_pending": len(needs_input) - len(shown_needs_input),
             "backlog_count": len(result["backlog"]),
             "auto_resolved": [f["id"] for f in result["auto_resolved"]],
             "methodology": (
                 "Integrity detectors I-1..I-8 over the live cache, reconciled into "
                 "findings.db; items ranked integrity-first (high confidence, then "
-                "dollars). trust is 'degraded' whenever any high integrity finding "
-                "surfaces — numbers elsewhere are then unverified."
+                "dollars). At most one needs_input question shows per run; "
+                "needs_input_pending is how many more wait in the ledger. trust is "
+                "'degraded' whenever any high integrity finding surfaces — numbers "
+                "elsewhere are then unverified."
             ),
         }

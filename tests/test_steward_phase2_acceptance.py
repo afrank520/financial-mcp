@@ -169,3 +169,5 @@ def test_two_unknown_accounts_cap_needs_input_to_one(tmp_path):
     assert len(out["needs_input"]) == 1
     # the larger-dollar unknown leads
     assert out["needs_input"][0]["dollars_at_stake"] == 2000.0
+    # the one held back by the cap is still counted, not hidden (no lying by omission)
+    assert out["needs_input_pending"] == 1
