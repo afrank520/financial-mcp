@@ -187,6 +187,41 @@ def test_i8_silent_for_known_accounts():
     assert I.detect_i8_new_account_entity(_ctx(accounts=[known])) == []
 
 
+# The 20 real accounts backfilled into the registry from the live 2026-09-13 I-8
+# sweep (Appendix C). Registering them must silence I-8 for every one — the whole
+# point of the backfill (see registry.py). Ids captured live via findings_list.
+_BACKFILLED_IDS = [
+    "169484792332435402",  # 15 Branwood Drive
+    "169484426295525198",  # 15 Branwood Mortgage
+    "169484752533733308",  # SALESFORCE 401(k)
+    "169483278280965580",  # Adams Checking
+    "169483407858744830",  # Alexis Savings
+    "169483407818898941",  # Braden Savings
+    "169483407908027903",  # Colton Savings
+    "169483407948922368",  # Dylan Savings
+    "169483407379545595",  # Elaina Savings
+    "169483407770664444",  # High Yield Savings
+    "169486554571357755",  # Coinbase
+    "169486005322005863",  # Robinhood
+    "169512876984122668",  # Venmo
+    "169484885260386277",  # Stock Plan (CRM)
+    "169484885021310948",  # Salesforce ESPP
+    "171945927021313088",  # Apple Cash
+    "171945926972030015",  # Apple Card
+    "169483725173571184",  # AT&T Universal Platinum
+    "169483620975525442",  # Optima Platinum
+    "169483620439703104",  # Blue from Amex
+]
+
+
+def test_i8_silent_for_all_backfilled_accounts():
+    from financial_mcp.steward import registry
+
+    accts = [_acct(aid, f"acct {aid}", 1000) for aid in _BACKFILLED_IDS]
+    assert all(registry.is_known(aid) for aid in _BACKFILLED_IDS)
+    assert I.detect_i8_new_account_entity(_ctx(accounts=accts)) == []
+
+
 # --- runner --------------------------------------------------------------
 def test_run_integrity_concatenates_and_covers_ids():
     lexi = _acct(LEXI_529, "Lexi 529 (02)", 40140.98, cf=True)

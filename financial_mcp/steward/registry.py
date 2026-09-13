@@ -62,6 +62,34 @@ REGISTRY: dict[str, RegistryEntry] = dict(
         _entry("169485860105764163", "Elaina 529 (05, old entity)", "excluded_legacy"),
         _entry("169483620903173697", "Corporate Card (…1002)", "excluded"),
         _entry("233056033218378937", "Corporate Card (…1009)", "excluded"),
+        # Appendix C backfill — the remaining real accounts, enumerated from the
+        # live 2026-09-13 I-8 account_ids so I-8 stops flagging them as "new". All
+        # are active accounts marked "live": registering them silences only the
+        # new-entity nag, leaving them under I-2 (staleness) and I-3 (carry-forward)
+        # watch. (Deliberately NOT expected_carry_forward — that would wrongly
+        # exempt a live account from those integrity checks.)
+        _entry("169484792332435402", "15 Branwood Drive (real estate)", "live"),
+        _entry("169484426295525198", "15 Branwood Mortgage", "live"),
+        # SALESFORCE 401(k) (…8797): live feed today (came through I-8, not I-3). If
+        # the feed ever freezes it may trip I-3 — watch, don't pre-exempt.
+        _entry("169484752533733308", "SALESFORCE 401(K) Plan (…8797)", "live"),
+        _entry("169483278280965580", "Adams Checking (…4187)", "live"),
+        _entry("169483407858744830", "Alexis Savings (9062)", "live"),
+        _entry("169483407818898941", "Braden Savings (8533)", "live"),
+        _entry("169483407908027903", "Colton Savings (9437)", "live"),
+        _entry("169483407948922368", "Dylan Savings (9697)", "live"),
+        _entry("169483407379545595", "Elaina Savings (2971)", "live"),
+        _entry("169483407770664444", "High Yield Savings (5040)", "live"),
+        _entry("169486554571357755", "Coinbase", "live"),
+        _entry("169486005322005863", "Robinhood individual (…2654)", "live"),
+        _entry("169512876984122668", "Adam's Venmo", "live"),
+        _entry("169484885260386277", "Stock Plan (CRM) (…5064)", "live"),
+        _entry("169484885021310948", "Salesforce ESPP (…5064)", "live"),
+        _entry("171945927021313088", "Apple Cash", "live"),
+        _entry("171945926972030015", "Apple Card", "live"),
+        _entry("169483725173571184", "AT&T Universal Platinum Card (…8459)", "live"),
+        _entry("169483620975525442", "Optima Platinum Card (…6007)", "live"),
+        _entry("169483620439703104", "Blue from American Express (…1001)", "live"),
     ]
 )
 
