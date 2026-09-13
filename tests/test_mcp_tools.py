@@ -116,9 +116,40 @@ def _tool(server, name):
     return server._tool_manager._tools[name].fn
 
 
-def test_health_check(tmp_path):
-    server = build_server(_service(tmp_path))
-    assert _tool(server, "health_check")()["status"] == "ok"
+class LiveAdapter(FakeAdapter):
+    def source_name(self):
+        return "live"
+
+
+def test_health_check_ok_when_live_and_no_stale(tmp_path):
+    # live source + empty (never-queried) cache -> nothing to distrust.
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    server = build_server(DataService(LiveAdapter(), cache))
+    out = _tool(server, "health_check")()
+    assert out["status"] == "ok"
+    assert out["source"] == "live"
+    assert out["reasons"] == []
+
+
+def test_health_check_degraded_when_source_not_live(tmp_path):
+    # the silent-CSV-fallback case: effective source != live -> degraded.
+    server = build_server(_service(tmp_path))  # FakeAdapter.source_name() -> "fake"
+    out = _tool(server, "health_check")()
+    assert out["status"] == "degraded"
+    assert out["source"] == "fake"
+    assert any("not live" in r for r in out["reasons"])
+
+
+def test_health_check_degraded_when_a_type_is_stale(tmp_path):
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(LiveAdapter(), cache)
+    server = build_server(svc)
+    cache.store("accounts", [{"name": "Checking"}], source="live")
+    cache.invalidate("accounts")  # failed-refetch leftover -> never-refreshed
+    out = _tool(server, "health_check")()
+    assert out["status"] == "degraded"
+    assert out["source"] == "live"
+    assert any("accounts is stale" in r for r in out["reasons"])
 
 
 def test_get_accounts_tool(tmp_path):

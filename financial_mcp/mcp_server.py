@@ -88,8 +88,27 @@ def build_server(
 
     @server.tool()
     def health_check() -> dict:
-        """Liveness check; confirms the server and cache are reachable."""
-        return {"status": "ok", "cache_types": len(svc.cache_status())}
+        """Report whether this session's data can be trusted right now.
+
+        status is "ok" only when the EFFECTIVE data source is live AND no cached
+        type is stale or never-refreshed; otherwise "degraded" with the reasons.
+        This is the single call that catches a silent CSV fallback (the direct
+        fix for the 8/28–9/1 outage, where Config said live but the adapter had
+        fallen back to CSV) or a stale session, before you rely on the numbers.
+        Per-type detail remains available via cache_status.
+        """
+        source = svc.source_name()
+        reasons: list[str] = []
+        if source != "live":
+            reasons.append(f"data source is '{source}', not live")
+        for row in svc.cache_status():
+            if not row["fresh"]:
+                reasons.append(f"{row['data_type']} is stale or never refreshed")
+        return {
+            "status": "degraded" if reasons else "ok",
+            "source": source,
+            "reasons": reasons,
+        }
 
     @server.tool()
     def get_accounts() -> dict:
