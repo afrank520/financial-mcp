@@ -641,6 +641,35 @@ def build_server(
         return _guard(_run)
 
     @server.tool()
+    def net_worth(as_of: str | None = None) -> dict:
+        """Net worth computed on-device from per-account balance snapshots, with a breakdown.
+
+        net_worth = Σ balance for accounts included in net worth whose balance is a
+        fresh (not carry-forward) snapshot. This reproduces Monarch's own number to
+        the penny; unlike networth_trend (which returns Monarch's aggregate series),
+        this shows WHICH accounts count — every account lands in `included` or
+        `excluded` with a reason (no_snapshot | not_in_net_worth | carry_forward).
+        Use it to cross-check net worth and to spot accounts that have silently gone
+        carry-forward (a dead data feed drops their balance out of net worth). Pass
+        as_of=YYYY-MM-DD for a historical date; default is the latest snapshot held.
+        """
+        if as_of is not None:
+            try:
+                target = datetime.date.fromisoformat(as_of)
+            except ValueError:
+                return {"error": "as_of must be YYYY-MM-DD"}
+        else:
+            target = None
+
+        def _run():
+            snaps = svc.balance_history()
+            t = target or balances.latest_snapshot_date(snaps) or datetime.date.today()
+            data = networth.net_worth_as_of(snaps, t)
+            return _envelope("balance_history", _jsonify([data])[0], count=data["included_count"])
+
+        return _guard(_run)
+
+    @server.tool()
     def budget_status(start: str, end: str) -> dict:
         """Per-category budgeted vs. actual for a month window (YYYY-MM-DD, inclusive).
 

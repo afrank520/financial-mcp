@@ -627,6 +627,58 @@ def test_networth_trend_start_after_end(tmp_path):
     }
 
 
+class NetWorthLevelAdapter(FakeAdapter):
+    """Balance snapshots where a dead 403b feed goes carry-forward.
+
+    Freshest snapshot present is 2026-06-28. The 403b's last snapshot is weeks
+    stale, so on the reference date it is carry-forward — INCLUDED in net worth
+    per Monarch but a stale repeat, exactly the class of account that inflates a
+    naive sum. net_worth must exclude it.
+    """
+
+    def get_balance_history(self):
+        return [
+            BalanceSnapshot(account_id="chk", display_name="Checking", date=datetime.date(2026, 6, 28),
+                            balance=Decimal("10000.00"), type_name="depository", include_in_net_worth=True),
+            BalanceSnapshot(account_id="heloc", display_name="HELOC", date=datetime.date(2026, 6, 28),
+                            balance=Decimal("-2000.00"), type_name="loan", include_in_net_worth=True),
+            BalanceSnapshot(account_id="403b", display_name="403b ...665Y71", date=datetime.date(2026, 5, 1),
+                            balance=Decimal("500000.00"), type_name="brokerage", include_in_net_worth=True),
+        ]
+
+
+def _nwl_service(tmp_path):
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    return DataService(NetWorthLevelAdapter(), cache)
+
+
+def test_net_worth_tool_default_target_excludes_carry_forward(tmp_path):
+    server = build_server(_nwl_service(tmp_path))
+    result = _tool(server, "net_worth")()  # default target = latest snapshot present
+    assert set(result) >= {"as_of", "age_hours", "stale", "count", "data"}
+    data = result["data"]
+    assert data["as_of"] == "2026-06-28"
+    # 10000 - 2000 = 8000; the $500,000 carry-forward 403b is NOT summed.
+    assert data["net_worth"] == "8000.00"           # Decimal serialized as string
+    assert data["included_count"] == 2
+    assert result["count"] == 2
+    reasons = {r["account_id"]: r["reason"] for r in data["excluded"]}
+    assert reasons["403b"] == "carry_forward"
+
+
+def test_net_worth_tool_accepts_as_of_date(tmp_path):
+    server = build_server(_nwl_service(tmp_path))
+    result = _tool(server, "net_worth")(as_of="2026-01-01")  # before any snapshot
+    data = result["data"]
+    assert data["net_worth"] == "0"
+    assert data["included_count"] == 0
+
+
+def test_net_worth_tool_rejects_bad_date(tmp_path):
+    server = build_server(_nwl_service(tmp_path))
+    assert _tool(server, "net_worth")(as_of="Jan 1") == {"error": "as_of must be YYYY-MM-DD"}
+
+
 class BudgetAdapter(FakeAdapter):
     def get_budgets(self, start, end):
         from financial_mcp.monarch.models import BudgetItem

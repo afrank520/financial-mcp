@@ -126,15 +126,18 @@ Each fix cites the current code and the trustworthy pattern to model on.
   2. Expose it as a new read-only MCP tool `net_worth(as_of: str | None = None)`
      (default today), wrapped in the standard envelope. This is what powers the
      on-demand carry-forward check in §6.
-  3. Fix `savings.py:48` to also skip snapshots that are `is_carry_forward` at the
-     window endpoint (the field is available on the nested `start`/`end` objects,
-     `balances.py:70-77`). **Guardrail (Decision 3, revised):** a delta-over-a-window
-     is a different object than a level-at-a-date, and this savings output is
-     live-proven penny-perfect for June 2026 — so this change ships **only** with
-     (a) a regression test pinning the known-good June number **before and after**
-     to prove zero drift, and (b) a synthetic test with a carry-forward cash/debt
-     endpoint proving the intended behavior. **If June drifts, defer this** — it is
-     not one of the four acceptance items.
+  3. ~~Fix `savings.py:48` to also skip snapshots that are `is_carry_forward` at the
+     window endpoint.~~ **DEFERRED during build (2026-09-12).** The Decision 3 gate
+     requires pinning the known-good **live** June 2026 number before and after to
+     prove zero drift; that number came from a live pull, and the synthetic
+     `test_savings_analytics.py` fixtures do not reproduce it, so non-drift cannot be
+     verified in a read-only build session without live data — which would couple this
+     to Task 3's live pull and add regression risk to a live-proven output. It is
+     explicitly **not** one of the four acceptance items, and the actual level-inflation
+     defect ($436k carry-forward) is fully fixed by `net_worth_as_of` + the `net_worth`
+     tool (items 1–2). Savings reconciliation is a delta-over-a-window — a different
+     object — where a carry-forward endpoint's effect is bounded. Revisit alongside a
+     future live pull if it proves to matter. See §6b.
 
 ### D-3 / D-4 — dishonest freshness; no `source`; epoch-0 leak
 
@@ -205,7 +208,7 @@ Each fix cites the current code and the trustworthy pattern to model on.
 |---|---|---|---|
 | 1 | `get_accounts` route | **HYBRID** — full list from `GetAccounts`, enrich carry-forward from snapshots | Snapshot-only silently drops zero-snapshot accounts (regression); hybrid keeps full coverage + honest carry-forward. **Assert account-count parity.** |
 | 2 | Expose net worth as a tool | **Yes — new `net_worth` tool** | Powers the on-demand carry-forward check (§6); lets us cross-check Monarch's series |
-| 3 | Fix `savings.py` carry-forward omission | **In scope, gated** | Ships only if the June 2026 regression holds (before/after pin); else defer — not an acceptance item |
+| 3 | Fix `savings.py` carry-forward omission | **DEFERRED at build (2026-09-12)** | Gate needed the live June number pinned before/after; unverifiable in a read-only session, not an acceptance item, and the level-inflation defect is fixed by the `net_worth` tool. See D-6 item 3 / §6b |
 | 4 | CSV `synth_id` collision | **Add positional ordinal, back-compat signature** | Prevents silently summing two real txns; must NOT break the live id fallback (`community_adapter.py:81`); low-priority offline-only |
 | 5 | Health surface | **Make the existing `health_check` honest** (not a new tool) | `health_check` already exists and always returns "ok"; must key on **effective** adapter source |
 
@@ -221,12 +224,11 @@ Each fix cites the current code and the trustworthy pattern to model on.
    all four fields present, `is_carry_forward` true for a stale account,
    `snapshot_date` real not today, a zero-snapshot account still appears, and
    **account-count parity vs `GetAccounts`**.
-2. **`net_worth_as_of` + `net_worth` tool + `savings.py` guard** (D-6). Pure
-   function with breakdown + `excluded` reasons; new tool; fix `savings.py:48`
-   (gated per Decision 3). Unit tests: the formula; a **synthetic in-net-worth
-   carry-forward account** proving the exclusion independent of live capture; the
-   savings guard with a carry-forward cash/debt endpoint; the June 2026 before/after
-   pin.
+2. **`net_worth_as_of` + `net_worth` tool** (D-6). Pure function with breakdown +
+   `excluded` reasons; new tool. Unit tests: the formula; a **synthetic in-net-worth
+   carry-forward account** proving the exclusion independent of live capture; no-snapshot
+   handling; the tool's envelope/count/date-validation. **The `savings.py` guard was
+   deferred** (Decision 3 gate unverifiable without live data — see D-6 item 3 / §6b).
 3. **Golden net-worth fixtures + regression tests** (D-6 verification). **Requires
    a one-time read-only live pull on Adam's Mac** to record snapshot fixtures for
    the three dates, then pin: 2025-09-01 = `$1,623,956.88`, 2026-03-01 =
@@ -277,6 +279,15 @@ until the monitor is automated.
 
 ## 6b. Knowingly deferred (named so they aren't forgotten)
 
+- **`savings.py` carry-forward guard (D-6 item 3).** Deferred at build (2026-09-12).
+  Decision 3 gated it behind pinning the live-proven June 2026 savings number
+  before and after; that number is not reproduced by the synthetic
+  `test_savings_analytics.py` fixtures, so zero-drift is unverifiable in a
+  read-only build session. It is not an acceptance item, and the level-inflation
+  defect it relates to (the $436k carry-forward) is fully fixed by the new
+  `net_worth` tool. A savings reconciliation delta is a different object — a
+  carry-forward endpoint's effect is bounded (a dead cash/debt feed carries the
+  same value at both endpoints → delta ≈ 0). Revisit alongside a future live pull.
 - **Double startup logging (status §5.4).** Deferred — observability, not
   data-trust. Flagged only because "logged twice" hints at possible double-init;
   if a second instance is confirmed it gets its own fix.
