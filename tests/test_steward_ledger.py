@@ -188,6 +188,67 @@ def test_list_filters_by_status_and_detector(tmp_path):
     assert len(led.list(limit=1)) == 1
 
 
+def _needs_input(subject="acct:9"):
+    return Finding.new(
+        detector="I-8",
+        subject_key=subject,
+        layer="integrity",
+        title="new account",
+        dollars_at_stake=1234.0,
+        distortion=False,
+        actions_to_fix=1,
+        confidence="needs_input",
+        status="needs_input",
+    )
+
+
+def test_insert_preserves_detector_status_and_exempts_needs_input_from_backlog(tmp_path):
+    clock = Clock(_utc(2026, 9, 11))
+    led = _ledger(tmp_path, clock)
+    f = _needs_input()
+    # surfaced across 3+ runs — a needs_input question must NOT drop to backlog
+    for day in (11, 12, 13, 14):
+        clock.t = _utc(2026, 9, day)
+        led.reconcile([_needs_input()], detectors_run=["I-8"])
+    row = led.get(f.id)
+    assert row["status"] == "needs_input"
+    assert row["is_backlog"] is False
+    # and it's findable by its real status, not miscategorized as "new"
+    assert f.id in [r["id"] for r in led.list(status="needs_input")]
+    assert led.list(status="new") == []
+
+
+def test_update_rejects_unknown_status(tmp_path):
+    clock = Clock(_utc(2026, 9, 11))
+    led = _ledger(tmp_path, clock)
+    f = _f()
+    led.reconcile([f], detectors_run=["I-3"])
+    try:
+        led.update(f.id, "resolvd")  # typo
+        raise AssertionError("expected unknown status to be rejected")
+    except ValueError as exc:
+        assert "unknown status" in str(exc)
+    assert led.get(f.id)["status"] == "new"  # unchanged
+
+
+def test_resurfaced_finding_is_not_backlog_demoted_on_stale_count(tmp_path):
+    clock = Clock(_utc(2026, 9, 11))
+    led = _ledger(tmp_path, clock)
+    # accrue times_shown to the backlog threshold, then dismiss
+    for day in (11, 12, 13):
+        clock.t = _utc(2026, 9, day)
+        led.reconcile([_f(dollars=1000.0)], detectors_run=["I-3"])
+    fid = _f(dollars=1000.0).id
+    led.update(fid, "dismissed", reason="ack")
+
+    # dollars jump materially -> suppression lifts; must SURFACE, not hide in backlog
+    clock.t = _utc(2026, 9, 20)
+    res = led.reconcile([_f(dollars=2000.0)], detectors_run=["I-3"])
+    assert fid in [r["id"] for r in res["surfaced"]]
+    assert fid not in [r["id"] for r in res["backlog"]]
+    assert led.get(fid)["is_backlog"] is False
+
+
 def test_account_carry_forward_state_round_trips_across_instances(tmp_path):
     clock = Clock(_utc(2026, 9, 11))
     path = str(tmp_path / "findings.db")

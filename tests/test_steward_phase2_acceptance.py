@@ -127,6 +127,38 @@ def test_dismiss_with_reason_suppresses_on_next_run(tmp_path):
     assert steward.ledger.get(fid)["status"] == "dismissed"
 
 
+# --- regression: non-watch account must not auto-resolve while still flipped ---
+def test_non_watch_carry_forward_survives_second_run_then_resolves_on_unflip(tmp_path):
+    """The bug the review caught: I-3 fired transition-only, so a non-watch account
+    went silent on run 2 and the ledger auto-resolved a still-live distortion. It
+    must stay surfaced every run it's flipped, and resolve only when it un-flips.
+    """
+    clock = _Clock(_utc(2026, 9, 11))
+    steward = _steward(tmp_path, clock)
+    heloc = _acct(HELOC_2800, "HELOC (…2800)", 12500.00, cf=True)  # live, non-watch
+
+    # run 1: flips (prev not carry-forward) -> fires
+    out1 = steward.check_with_context(_ctx([heloc], previous_carry_forward={HELOC_2800: False}))
+    i3 = [f for f in out1["items"] if f["detector"] == "I-3"]
+    assert len(i3) == 1
+    fid = i3[0]["id"]
+
+    # run 2: STILL carry-forward, prior flag now True -> must re-surface, not resolve
+    clock.t = _utc(2026, 9, 12)
+    out2 = steward.check_with_context(_ctx([heloc], previous_carry_forward={HELOC_2800: True}))
+    assert fid in [f["id"] for f in out2["items"]]
+    assert fid not in out2["auto_resolved"]
+    assert steward.ledger.get(fid)["status"] != "resolved"
+
+    # run 3: account un-flips (feed restored) -> detector silent -> auto-resolved
+    clock.t = _utc(2026, 9, 13)
+    healthy = _acct(HELOC_2800, "HELOC (…2800)", 12500.00, cf=False)
+    out3 = steward.check_with_context(_ctx([healthy], previous_carry_forward={HELOC_2800: True}))
+    assert fid not in [f["id"] for f in out3["items"]]
+    assert steward.ledger.get(fid)["status"] == "resolved"
+    assert steward.ledger.get(fid)["resolved_by"] == "data"
+
+
 # --- run shaping: needs_input capped at one ------------------------------
 def test_two_unknown_accounts_cap_needs_input_to_one(tmp_path):
     clock = _Clock(_utc(2026, 9, 11))

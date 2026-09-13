@@ -105,6 +105,17 @@ def test_i3_watch_529_fires_even_without_prior_state():
     assert len(out) == 1 and out[0].detector == "I-3"
 
 
+def test_i3_fires_for_persistent_non_watch_carry_forward_without_transition():
+    # a live, non-watch, non-expected account that is carry-forward with NO prior
+    # transition (was already flagged last run) must STILL fire — the distortion is
+    # durable, and a transition-only detector would let the ledger auto-resolve it.
+    heloc = _acct("251845388366920938", "HELOC (…2800)", 12500.00, cf=True)
+    out = I.detect_i3_carry_forward_transition(
+        _ctx(accounts=[heloc], previous_carry_forward={"251845388366920938": True})
+    )
+    assert len(out) == 1 and out[0].detector == "I-3" and out[0].dollars_at_stake == 12500.00
+
+
 def test_i3_stable_id_across_runs():
     lexi = _acct(LEXI_529, "Lexi 529 (02)", 40140.98, cf=True)
     a = I.detect_i3_carry_forward_transition(_ctx(accounts=[lexi], previous_carry_forward={LEXI_529: False}))[0]

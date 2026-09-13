@@ -107,11 +107,19 @@ def detect_i2_stale_data(ctx: IntegrityContext) -> list[Finding]:
 
 
 def detect_i3_carry_forward_transition(ctx: IntegrityContext) -> list[Finding]:
-    """Account flipped is_carry_forward false→true and isn't registry-expected.
+    """Account is carry-forward and NOT registry-expected — its balance is
+    silently out of net worth (the $436k-of-ghosts class of bug).
 
-    Fires on a detected transition (prior run saw it as not carry-forward) OR
-    whenever a watch-list 529 is currently carry-forward — a 529 should never be.
-    Reports the balance that just left net worth.
+    Fires EVERY run while that durable condition holds, not only on the
+    false→true transition. This matters: the ledger auto-resolves any finding a
+    detector *stops* producing, so a transition-only I-3 would go quiet after one
+    run and the ledger would mark a still-live distortion "resolved". Re-asserting
+    each run means auto-resolve fires only when the account actually un-flips.
+
+    The prior-run flag and the 529 watch list only shape the wording; the durable
+    condition (carry-forward AND not registry-expected) is what fires. A genuinely
+    intentional carry-forward the registry doesn't cover is meant to be dismissed
+    once with a reason, after which the ledger keeps it suppressed.
     """
     out: list[Finding] = []
     for a in ctx.accounts:
@@ -120,17 +128,20 @@ def detect_i3_carry_forward_transition(ctx: IntegrityContext) -> list[Finding]:
         was_cf = ctx.previous_carry_forward.get(a.account_id)
         transitioned = was_cf is False  # explicitly known-not-carry-forward before
         watched = registry.is_watch_carry_forward(a.account_id)
-        if not (transitioned or watched):
-            continue
         removed = abs(float(a.latest_balance)) if a.include_in_net_worth else 0.0
-        prefix = "529 flipped to carry-forward" if watched else "Account flipped to carry-forward"
+        if watched:
+            prefix, verb = "529 flipped to carry-forward", "silently left"
+        elif transitioned:
+            prefix, verb = "Account flipped to carry-forward", "silently left"
+        else:
+            prefix, verb = "Account is carry-forward", "is out of"
         out.append(
             _f(
                 detector="I-3",
                 subject_key=f"acct:{a.account_id}",
                 title=f"{prefix}: {a.name}",
-                summary=f"{a.name} is now carry-forward; ${removed:,.2f} silently "
-                "left net worth. Reconnect the feed or confirm the account state.",
+                summary=f"{a.name} is carry-forward; ${removed:,.2f} {verb} "
+                "net worth. Reconnect the feed or confirm the account state.",
                 dollars_at_stake=removed,
                 distortion=True,
                 actions_to_fix=1,

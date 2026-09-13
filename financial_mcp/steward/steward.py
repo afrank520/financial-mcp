@@ -74,6 +74,9 @@ class Steward:
             computed_net_worth=computed_nw,
             monarch_net_worth=monarch_nw,
             budgets_available=self._budgets_available(as_of),
+            # I-6's epoch-0 half (below) covers the live D-2/D-3 class today; the
+            # refresh-error half stays empty until DataService surfaces per-type
+            # refresh failures into the context (a Phase-3 wiring point).
             refresh_errors=[],
             epoch_zero_types=epoch_zero,
             previous_carry_forward=self.ledger.previous_carry_forward(),

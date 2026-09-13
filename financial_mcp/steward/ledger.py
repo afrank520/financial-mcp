@@ -36,6 +36,12 @@ _RESURFACE_MIN_ABS = 250.0
 _BACKLOG_SHOWINGS = 3
 _ACTIVE_STATUSES = ("new", "open", "approved", "needs_input")
 
+# the lifecycle statuses a manual update may set — suppression/auto-resolve/backlog
+# all key off exact status strings, so a typo must be rejected, not stored.
+_VALID_STATUSES = frozenset(
+    {"new", "open", "approved", "resolved", "dismissed", "snoozed", "needs_input"}
+)
+
 
 def _default_now() -> datetime.datetime:
     return datetime.datetime.now(tz=datetime.timezone.utc)
@@ -150,6 +156,10 @@ class Ledger:
         row = self._get_row(finding_id)
         if row is None:
             raise KeyError(finding_id)
+        if status not in _VALID_STATUSES:
+            raise ValueError(
+                f"unknown status '{status}'; expected one of {sorted(_VALID_STATUSES)}"
+            )
         if status == "dismissed" and not reason:
             raise ValueError("dismissal requires a reason")
         if status == "snoozed" and not snooze_until:
@@ -181,6 +191,9 @@ class Ledger:
 
     # --- run-time reconciliation ------------------------------------------
     def _insert_new(self, f: Finding) -> None:
+        # Honor the detector's status (e.g. I-8 opens as "needs_input" so it lands
+        # in the needs_input bucket and is exempt from backlog demotion); default
+        # is "new" via the Finding model.
         now = self._iso()
         self._conn.execute(
             "INSERT INTO findings (id, detector, layer, status, priority, "
@@ -188,7 +201,7 @@ class Ledger:
             "dismissed_dollars, snooze_until, dismiss_reason, resolved_by, "
             "payload, schema_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
-                f.id, f.detector, f.layer, "new", f.priority, f.dollars_at_stake,
+                f.id, f.detector, f.layer, f.status, f.priority, f.dollars_at_stake,
                 f.confidence, now, now, 1, None, None, None, None,
                 f.model_dump_json(), SCHEMA_VERSION,
             ),
@@ -237,7 +250,10 @@ class Ledger:
             status = row["status"]
             if status == "dismissed":
                 if self._suppression_lifts(row, f.dollars_at_stake):
-                    self._refresh(f, status="open", times_shown=row["times_shown"] + 1)
+                    # material change -> re-open. Reset times_shown so this freshly
+                    # re-important finding surfaces rather than routing straight to
+                    # backlog on a stale prior count.
+                    self._refresh(f, status="open", times_shown=1)
                     self._route(f.id, surfaced, backlog)
                 else:
                     # stay suppressed: refresh current dollars for tracking, keep status
@@ -246,13 +262,13 @@ class Ledger:
             elif status == "snoozed":
                 if self._snooze_expired(row):
                     self._clear_snooze(f.id)
-                    self._refresh(f, status="open", times_shown=row["times_shown"] + 1)
+                    self._refresh(f, status="open", times_shown=1)  # fresh window post-snooze
                     self._route(f.id, surfaced, backlog)
                 else:
                     suppressed.append(self.get(f.id))
             elif status == "resolved":
-                # the problem came back after resolution -> re-open
-                self._refresh(f, status="open", times_shown=row["times_shown"] + 1)
+                # the problem came back after resolution -> re-open with a fresh count
+                self._refresh(f, status="open", times_shown=1)
                 self._route(f.id, surfaced, backlog)
             else:  # new / open / approved / needs_input
                 self._refresh(f, status=status, times_shown=row["times_shown"] + 1)

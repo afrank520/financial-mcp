@@ -33,8 +33,13 @@ DETECTOR_PATTERN = r"^(I|M|P|A)-\d+[a-z]?$"
 
 
 def finding_id(detector: str, subject_key: str) -> str:
-    """Stable finding identity: sha1 of detector id + a stable subject key."""
-    return hashlib.sha1(f"{detector}{subject_key}".encode()).hexdigest()
+    """Stable finding identity: sha1 of detector id + a stable subject key.
+
+    A US unit-separator (\\x1f) joins the two fields — it can't appear in a
+    detector id or subject key, so ('I-1','23x') and ('I-12','3x') can't collide
+    once a detector id grows a letter suffix (the pattern already allows M-5b).
+    """
+    return hashlib.sha1(f"{detector}\x1f{subject_key}".encode()).hexdigest()
 
 
 def compute_priority(distortion: bool, dollars_at_stake: float, actions_to_fix: int) -> float:
