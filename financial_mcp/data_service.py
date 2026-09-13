@@ -81,28 +81,60 @@ class DataService:
         # Never cached — window-parameterized, mirrors cashflow/budgets.
         return self._adapter.get_recurring(start, end)
 
-    def refresh(self, data_type: str | None = None) -> None:
-        types = [data_type] if data_type else [
-            "transactions", "balances", "accounts", "balance_history", "networth", "categories",
-            "holdings",
-        ]
+    def _fetchers(self) -> dict[str, tuple[Callable[[], list], type]]:
+        """Map each cached data type to its adapter fetch call and model.
+
+        Used by refresh() to pull fresh and re-store per type, bypassing _get's
+        stale-fallback so a genuine fetch failure is visible (not swallowed)."""
+        return {
+            "transactions": (self._adapter.get_transactions, Transaction),
+            "balances": (self._adapter.get_balances, Balance),
+            "accounts": (self._adapter.get_accounts, Account),
+            "balance_history": (self._adapter.get_balance_history, BalanceSnapshot),
+            "networth": (self._adapter.get_networth_history, NetWorthSnapshot),
+            "categories": (self._adapter.get_categories, Category),
+            "holdings": (self._adapter.get_holdings, Holding),
+        }
+
+    def refresh(self, data_type: str | None = None) -> dict:
+        """Force a fresh pull per type and report an honest per-type outcome.
+
+        Returns {refreshed: [type,...], failed: [{type, error}, ...]}. Fetches
+        directly from the adapter and only overwrites the cache on success, so a
+        failed type keeps its prior data + timestamp (never an epoch-0 1970
+        leak) and is reported in `failed`. Typed auth errors are re-raised so the
+        tool layer's _guard converts them to a single friendly re-login message
+        rather than one-per-type noise."""
+        from financial_mcp.monarch.community_adapter import (
+            CloudflareBlockedError,
+            SessionExpiredError,
+        )
+
+        fetchers = self._fetchers()
+        if data_type is not None and data_type not in fetchers:
+            raise ValueError(
+                f"unknown data_type '{data_type}'; expected one of {', '.join(fetchers)}"
+            )
+        types = [data_type] if data_type else list(fetchers)
+        refreshed: list[str] = []
+        failed: list[dict] = []
         for t in types:
-            self._cache.invalidate(t)
-        for t in types:
-            if t == "transactions":
-                self.transactions()
-            elif t == "balances":
-                self.balances()
-            elif t == "accounts":
-                self.accounts()
-            elif t == "balance_history":
-                self.balance_history()
-            elif t == "networth":
-                self.networth_history()
-            elif t == "categories":
-                self.categories()
-            elif t == "holdings":
-                self.holdings()
+            fetch, _model = fetchers[t]
+            try:
+                items = fetch()
+            except (SessionExpiredError, CloudflareBlockedError):
+                raise  # global auth failure -> let _guard surface one {error}
+            except Exception as exc:
+                logger.warning("refresh failed for %s: %s", t, exc)
+                failed.append({"type": t, "error": str(exc)})
+                continue
+            self._cache.store(
+                t,
+                [m.model_dump(mode="json") for m in items],
+                source=self._adapter.source_name(),
+            )
+            refreshed.append(t)
+        return {"refreshed": refreshed, "failed": failed}
 
     def recategorize(self, transaction_id: str, category_id: str) -> bool:
         applied = self._adapter.recategorize_transaction(transaction_id, category_id)
@@ -149,6 +181,14 @@ class DataService:
                                 set_category_id: str | None, set_merchant: str | None) -> bool:
         return self._adapter.update_transaction_rule(
             rule_id, operator, value, set_category_id, set_merchant)
+
+    def source_name(self) -> str:
+        """The effective data source of the adapter actually in use ("live"/"csv").
+
+        Comes from the adapter, NOT Config.source: the 8/28–9/1 outage was
+        Config.source=live while build_adapter had silently fallen back to CSV,
+        so keying freshness/health on Config would reproduce that dishonesty."""
+        return self._adapter.source_name()
 
     def freshness(self, data_type: str) -> dict:
         """Freshness metadata (as_of, age_seconds, fresh) for one data type."""

@@ -23,6 +23,19 @@ def test_transaction_synth_id_is_stable_and_hex():
     assert a != f
 
 
+def test_transaction_synth_id_ordinal_is_backcompat_and_disambiguates():
+    args = (datetime.date(2026, 1, 2), "Costco", Decimal("-52.10"), "COSTCO #123")
+    base = Transaction.synth_id(*args)
+    # ordinal=0 (default) is byte-identical to the pre-ordinal hash -> the live
+    # adapter's 4-arg id fallback is unchanged.
+    assert Transaction.synth_id(*args, 0) == base
+    assert Transaction.synth_id(*args, ordinal=0) == base
+    # a nonzero ordinal yields a distinct id so two identical-looking rows don't
+    # collapse into one.
+    assert Transaction.synth_id(*args, 1) != base
+    assert Transaction.synth_id(*args, 1) != Transaction.synth_id(*args, 2)
+
+
 def test_transaction_construction():
     txn = Transaction(
         id="x",

@@ -65,10 +65,18 @@ class CloudflareBlockedError(RuntimeError):
 
 
 def _to_account(d: dict, as_of: datetime.date) -> Account:
+    # displayBalance is the value Monarch shows; currentBalance is null for many
+    # manual/asset/investment accounts, so reading currentBalance alone reported a
+    # funded account as $0. Prefer displayBalance, fall back to currentBalance.
+    bal = d.get("displayBalance")
+    if bal is None:
+        bal = d.get("currentBalance")
     return Account(
         name=d["displayName"],
-        latest_balance=Decimal(str(d.get("currentBalance") or 0)),
+        latest_balance=Decimal(str(bal or 0)),
         as_of=as_of,
+        account_id=str(d.get("id") or ""),
+        include_in_net_worth=bool(d.get("includeInNetWorth", True)),
     )
 
 
@@ -184,6 +192,7 @@ class CommunityAdapter(MonarchAdapter):
 
     def get_transactions(self) -> list[Transaction]:
         out: list[Transaction] = []
+        seen: set[str] = set()
         offset = 0
         while True:
             variables = {
@@ -195,7 +204,15 @@ class CommunityAdapter(MonarchAdapter):
             data = self._run(self._transport("GetTransactionsList", GET_TRANSACTIONS, variables))
             block = data.get("allTransactions", {})
             results = block.get("results", [])
-            out.extend(_to_transaction(r) for r in results)
+            # Dedupe by id across pages: a page boundary that shifts (new txn
+            # imported mid-pagination, or an overlapping window) otherwise repeats
+            # the same id, double-counting a real transaction in every total.
+            for r in results:
+                txn = _to_transaction(r)
+                if txn.id in seen:
+                    continue
+                seen.add(txn.id)
+                out.append(txn)
             if not results:
                 break
             offset += len(results)

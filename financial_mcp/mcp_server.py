@@ -53,6 +53,7 @@ def build_server(
             "as_of": f["as_of"],
             "age_hours": None if age_s is None else round(age_s / 3600, 1),
             "stale": not f["fresh"],
+            "source": svc.source_name(),
             "count": len(data) if count is None else count,
             "data": data,
         }
@@ -68,6 +69,7 @@ def build_server(
             "as_of": now,
             "age_hours": 0.0,
             "stale": False,
+            "source": svc.source_name(),
             "count": len(data) if count is None else count,
             "data": data,
         }
@@ -86,18 +88,50 @@ def build_server(
 
     @server.tool()
     def health_check() -> dict:
-        """Liveness check; confirms the server and cache are reachable."""
-        return {"status": "ok", "cache_types": len(svc.cache_status())}
+        """Report whether this session's data can be trusted right now.
+
+        status is "ok" only when the EFFECTIVE data source is live AND no cached
+        type is stale or never-refreshed; otherwise "degraded" with the reasons.
+        This is the single call that catches a silent CSV fallback (the direct
+        fix for the 8/28–9/1 outage, where Config said live but the adapter had
+        fallen back to CSV) or a stale session, before you rely on the numbers.
+        Per-type detail remains available via cache_status.
+        """
+        source = svc.source_name()
+        reasons: list[str] = []
+        if source != "live":
+            reasons.append(f"data source is '{source}', not live")
+        for row in svc.cache_status():
+            if not row["fresh"]:
+                reasons.append(f"{row['data_type']} is stale or never refreshed")
+        return {
+            "status": "degraded" if reasons else "ok",
+            "source": source,
+            "reasons": reasons,
+        }
 
     @server.tool()
     def get_accounts() -> dict:
         """List financial accounts with their latest known balance.
 
-        Returns an envelope: as_of (when the data was last synced from Monarch),
-        age_hours, stale, count, and data. If stale is true or age_hours is
-        large, offer to refresh_cache before relying on the numbers.
+        Each account carries account_id, include_in_net_worth, is_carry_forward,
+        and snapshot_date (the real date the balance was observed). is_carry_forward
+        means the account has no fresh snapshot and Monarch is repeating its last
+        known balance — such balances are excluded from net worth.
+
+        Returns an envelope: as_of (when accounts were last synced), age_hours,
+        stale, source, count, and data. If stale is true or age_hours is large,
+        offer to refresh_cache before relying on the numbers.
         """
-        return _guard(lambda: _envelope("accounts", _dump(svc.accounts())))
+        def _run():
+            # Full account list from GetAccounts (never drops an account), then
+            # enrich carry-forward/snapshot_date from balance-history snapshots.
+            # Envelope against "accounts" (the primary type, which IS stored) so
+            # freshness stays honest.
+            accts = svc.accounts()
+            enriched = balances.merge_carry_forward(accts, svc.balance_history())
+            return _envelope("accounts", _dump(enriched))
+        return _guard(_run)
 
     @server.tool()
     def get_transactions(limit: int = DEFAULT_TXN_ROWS) -> dict:
@@ -628,6 +662,38 @@ def build_server(
         return _guard(_run)
 
     @server.tool()
+    def net_worth(as_of: str | None = None) -> dict:
+        """Net worth computed on-device from per-account balance snapshots, with a breakdown.
+
+        net_worth = Σ balance for accounts included in net worth whose balance is a
+        fresh (not carry-forward) snapshot. This reproduces Monarch's own number to
+        the penny; unlike networth_trend (which returns Monarch's aggregate series),
+        this shows WHICH accounts count — every account lands in `included` or
+        `excluded` with a reason (no_snapshot | not_in_net_worth | carry_forward).
+        Use it to cross-check net worth and to spot accounts that have silently gone
+        carry-forward (a dead data feed drops their balance out of net worth). Pass
+        as_of=YYYY-MM-DD for a historical date; default is the latest snapshot held.
+        Note: an as_of AFTER the latest snapshot (or before any snapshot) has no
+        fresh balance for any account, so every account is reported carry-forward /
+        no_snapshot and net_worth is 0 — query a date within the snapshot range.
+        """
+        if as_of is not None:
+            try:
+                target = datetime.date.fromisoformat(as_of)
+            except ValueError:
+                return {"error": "as_of must be YYYY-MM-DD"}
+        else:
+            target = None
+
+        def _run():
+            snaps = svc.balance_history()
+            t = target or balances.latest_snapshot_date(snaps) or datetime.date.today()
+            data = networth.net_worth_as_of(snaps, t)
+            return _envelope("balance_history", _jsonify([data])[0], count=data["included_count"])
+
+        return _guard(_run)
+
+    @server.tool()
     def budget_status(start: str, end: str) -> dict:
         """Per-category budgeted vs. actual for a month window (YYYY-MM-DD, inclusive).
 
@@ -725,9 +791,19 @@ def build_server(
         budget), or explicitly wants the very latest data instead of the cached
         copy. data_type is one of: transactions, balances, accounts,
         balance_history, networth, categories, holdings.
+
+        Returns an honest per-type outcome: {refreshed: [...], failed: [{type,
+        error}], source}. A type that fails to refetch keeps its prior cached
+        data and is listed in `failed` — it is never silently reported as
+        refreshed, and a failed refetch never leaves a 1970 epoch-0 timestamp.
         """
-        svc.refresh(data_type)
-        return {"refreshed": data_type or "all"}
+        try:
+            outcome = svc.refresh(data_type)
+        except ValueError as exc:
+            return {"error": str(exc)}
+        except (SessionExpiredError, CloudflareBlockedError) as exc:
+            return {"error": f"{exc}. Re-authenticate: financial-mcp-login"}
+        return {**outcome, "source": svc.source_name()}
 
     @server.tool()
     def recategorize_transaction(transaction_id: str, category: str) -> dict:

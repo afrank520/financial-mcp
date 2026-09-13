@@ -43,6 +43,24 @@ def test_accounts_use_latest_balance():
     assert accts["Credit Card"].latest_balance == Decimal("-450.00")
 
 
+def test_two_identical_rows_get_distinct_ids(tmp_path):
+    # Two genuinely-distinct purchases that look identical (same date, merchant,
+    # amount, statement) must NOT collapse into one synth_id and be summed as one.
+    csv_content = (
+        "Date,Merchant,Amount,Category,Account,Original Statement,Notes,Tags,Owner\n"
+        "2026-01-02,Costco,-5.00,Groceries,Checking,COSTCO,,,Adam\n"
+        "2026-01-02,Costco,-5.00,Groceries,Checking,COSTCO,,,Adam\n"
+    )
+    txn_file = tmp_path / "transactions.csv"
+    bal_file = tmp_path / "balances.csv"
+    txn_file.write_text(csv_content)
+    bal_file.write_text("Date,Balance,Account\n2026-01-02,100.00,Checking\n")
+
+    txns = CsvAdapter(str(txn_file), str(bal_file)).get_transactions()
+    assert len(txns) == 2
+    assert txns[0].id != txns[1].id  # distinct rows, distinct ids
+
+
 def test_blank_amount_raises_error(tmp_path):
     import pytest
 

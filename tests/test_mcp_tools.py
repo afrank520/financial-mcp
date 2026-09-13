@@ -116,9 +116,55 @@ def _tool(server, name):
     return server._tool_manager._tools[name].fn
 
 
-def test_health_check(tmp_path):
-    server = build_server(_service(tmp_path))
-    assert _tool(server, "health_check")()["status"] == "ok"
+class LiveAdapter(FakeAdapter):
+    def source_name(self):
+        return "live"
+
+
+def test_health_check_ok_when_live_and_no_stale(tmp_path):
+    # live source + empty (never-queried) cache -> nothing to distrust.
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    server = build_server(DataService(LiveAdapter(), cache))
+    out = _tool(server, "health_check")()
+    assert out["status"] == "ok"
+    assert out["source"] == "live"
+    assert out["reasons"] == []
+
+
+def test_health_check_degraded_when_source_not_live(tmp_path):
+    # the silent-CSV-fallback case: effective source != live -> degraded.
+    server = build_server(_service(tmp_path))  # FakeAdapter.source_name() -> "fake"
+    out = _tool(server, "health_check")()
+    assert out["status"] == "degraded"
+    assert out["source"] == "fake"
+    assert any("not live" in r for r in out["reasons"])
+
+
+def test_health_check_stays_ok_after_get_accounts_runs(tmp_path):
+    # Regression: `accounts` is an always-live (TTL 0) type that _get stores on
+    # every call. cache_status must report a just-fetched always-live type as
+    # fresh (grace-aware), or health_check would flip to degraded on a perfectly
+    # healthy live session the moment get_accounts runs.
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(LiveAdapter(), cache)
+    server = build_server(svc)
+    _tool(server, "get_accounts")()  # stores the always-live `accounts` type
+    assert {r["data_type"]: r["fresh"] for r in svc.cache_status()}["accounts"] is True
+    out = _tool(server, "health_check")()
+    assert out["status"] == "ok"
+    assert out["reasons"] == []
+
+
+def test_health_check_degraded_when_a_type_is_stale(tmp_path):
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(LiveAdapter(), cache)
+    server = build_server(svc)
+    cache.store("accounts", [{"name": "Checking"}], source="live")
+    cache.invalidate("accounts")  # failed-refetch leftover -> never-refreshed
+    out = _tool(server, "health_check")()
+    assert out["status"] == "degraded"
+    assert out["source"] == "live"
+    assert any("accounts is stale" in r for r in out["reasons"])
 
 
 def test_get_accounts_tool(tmp_path):
@@ -127,6 +173,92 @@ def test_get_accounts_tool(tmp_path):
     accts = result["data"]
     assert accts[0]["name"] == "Checking"
     assert accts[0]["latest_balance"] == "100"
+
+
+def test_cached_envelope_reports_effective_adapter_source(tmp_path):
+    # source must come from the adapter actually in use, not Config.source.
+    server = build_server(_service(tmp_path))  # FakeAdapter.source_name() -> "fake"
+    result = _tool(server, "get_accounts")()
+    assert result["source"] == "fake"
+
+
+def test_live_envelope_reports_effective_adapter_source(tmp_path):
+    server = build_server(_service(tmp_path))
+    result = _tool(server, "recurring_summary")(start="2026-06-01", end="2026-06-30")
+    assert result["source"] == "fake"
+    assert result["stale"] is False  # live path
+
+
+def test_refresh_cache_reports_per_type_outcome_and_source(tmp_path):
+    server = build_server(_service(tmp_path))
+    out = _tool(server, "refresh_cache")("transactions")
+    assert out["refreshed"] == ["transactions"]
+    assert out["failed"] == []
+    assert out["source"] == "fake"
+
+
+def test_refresh_cache_partial_failure_lists_failed(tmp_path):
+    class _PartlyDown(FakeAdapter):
+        def get_transactions(self):
+            raise RuntimeError("monarch down")
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    server = build_server(DataService(_PartlyDown(), cache))
+    out = _tool(server, "refresh_cache")()  # all types
+    assert {"type": "transactions", "error": "monarch down"} in out["failed"]
+    assert "transactions" not in out["refreshed"]
+
+
+def test_refresh_cache_typed_error_surfaces_as_error(tmp_path):
+    from financial_mcp.monarch.community_adapter import SessionExpiredError
+
+    class _Expired(FakeAdapter):
+        def get_transactions(self):
+            raise SessionExpiredError("session expired")
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    server = build_server(DataService(_Expired(), cache))
+    out = _tool(server, "refresh_cache")("transactions")
+    assert "financial-mcp-login" in out["error"]
+
+
+def test_refresh_cache_unknown_type_returns_error(tmp_path):
+    server = build_server(_service(tmp_path))
+    out = _tool(server, "refresh_cache")("bogus")
+    assert "bogus" in out["error"]
+
+
+def test_get_accounts_enriches_carry_forward_and_keeps_all_accounts(tmp_path):
+    # a2 has only a stale snapshot -> carry-forward; a3 has NO snapshot series and
+    # must still appear (hybrid full coverage, not snapshot-only which would drop it).
+    class A(FakeAdapter):
+        def get_accounts(self):
+            d = datetime.date(2026, 1, 2)
+            return [
+                Account(name="Checking", latest_balance=Decimal("100"), as_of=d, account_id="a1"),
+                Account(name="Old 403b", latest_balance=Decimal("89800"), as_of=d, account_id="a2"),
+                Account(name="Brand New 529", latest_balance=Decimal("200"), as_of=d, account_id="a3"),
+            ]
+
+        def get_balance_history(self):
+            return [
+                BalanceSnapshot(account_id="a1", display_name="Checking",
+                                date=datetime.date(2026, 1, 2), balance=Decimal("100"),
+                                include_in_net_worth=True),
+                BalanceSnapshot(account_id="a2", display_name="Old 403b",
+                                date=datetime.date(2025, 12, 1), balance=Decimal("89800"),
+                                include_in_net_worth=True),
+            ]
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    server = build_server(DataService(A(), cache))
+    accts = {a["account_id"]: a for a in _tool(server, "get_accounts")()["data"]}
+    assert set(accts) == {"a1", "a2", "a3"}  # parity: no account dropped
+    assert accts["a1"]["is_carry_forward"] is False
+    assert accts["a1"]["snapshot_date"] == "2026-01-02"
+    assert accts["a2"]["is_carry_forward"] is True   # stale snapshot vs freshest data
+    assert accts["a3"]["is_carry_forward"] is False  # zero-snapshot account, kept
+    assert accts["a3"]["snapshot_date"] is None
 
 
 def test_get_accounts_envelope_carries_freshness(tmp_path):
@@ -592,6 +724,58 @@ def test_networth_trend_start_after_end(tmp_path):
     assert _tool(server, "networth_trend")(start="2026-06-30", end="2026-01-01") == {
         "error": "start must not be after end"
     }
+
+
+class NetWorthLevelAdapter(FakeAdapter):
+    """Balance snapshots where a dead 403b feed goes carry-forward.
+
+    Freshest snapshot present is 2026-06-28. The 403b's last snapshot is weeks
+    stale, so on the reference date it is carry-forward — INCLUDED in net worth
+    per Monarch but a stale repeat, exactly the class of account that inflates a
+    naive sum. net_worth must exclude it.
+    """
+
+    def get_balance_history(self):
+        return [
+            BalanceSnapshot(account_id="chk", display_name="Checking", date=datetime.date(2026, 6, 28),
+                            balance=Decimal("10000.00"), type_name="depository", include_in_net_worth=True),
+            BalanceSnapshot(account_id="heloc", display_name="HELOC", date=datetime.date(2026, 6, 28),
+                            balance=Decimal("-2000.00"), type_name="loan", include_in_net_worth=True),
+            BalanceSnapshot(account_id="403b", display_name="403b ...665Y71", date=datetime.date(2026, 5, 1),
+                            balance=Decimal("500000.00"), type_name="brokerage", include_in_net_worth=True),
+        ]
+
+
+def _nwl_service(tmp_path):
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    return DataService(NetWorthLevelAdapter(), cache)
+
+
+def test_net_worth_tool_default_target_excludes_carry_forward(tmp_path):
+    server = build_server(_nwl_service(tmp_path))
+    result = _tool(server, "net_worth")()  # default target = latest snapshot present
+    assert set(result) >= {"as_of", "age_hours", "stale", "count", "data"}
+    data = result["data"]
+    assert data["as_of"] == "2026-06-28"
+    # 10000 - 2000 = 8000; the $500,000 carry-forward 403b is NOT summed.
+    assert data["net_worth"] == "8000.00"           # Decimal serialized as string
+    assert data["included_count"] == 2
+    assert result["count"] == 2
+    reasons = {r["account_id"]: r["reason"] for r in data["excluded"]}
+    assert reasons["403b"] == "carry_forward"
+
+
+def test_net_worth_tool_accepts_as_of_date(tmp_path):
+    server = build_server(_nwl_service(tmp_path))
+    result = _tool(server, "net_worth")(as_of="2026-01-01")  # before any snapshot
+    data = result["data"]
+    assert data["net_worth"] == "0"
+    assert data["included_count"] == 0
+
+
+def test_net_worth_tool_rejects_bad_date(tmp_path):
+    server = build_server(_nwl_service(tmp_path))
+    assert _tool(server, "net_worth")(as_of="Jan 1") == {"error": "as_of must be YYYY-MM-DD"}
 
 
 class BudgetAdapter(FakeAdapter):

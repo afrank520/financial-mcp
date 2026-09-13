@@ -84,7 +84,14 @@ class SqliteCache:
         row = self._conn.execute(
             "SELECT last_refresh FROM cache_entries WHERE data_type=?", (data_type,)
         ).fetchone()
-        return row[0] if row else None
+        if row is None:
+            return None
+        lr = row[0]
+        # 0 is the invalidate() sentinel, never a real clock value (store() always
+        # writes self._clock()). Treat it as never-refreshed so age/as_of report
+        # None rather than leaking a 1970-01-01 epoch-0 timestamp when a failed
+        # refetch leaves an invalidated entry behind.
+        return None if not lr else lr
 
     def age_seconds(self, data_type: str) -> float | None:
         lr = self._last_refresh(data_type)
@@ -102,17 +109,28 @@ class SqliteCache:
             return False
         return age < self._ttl_for(data_type)
 
+    def _reported_fresh(self, data_type: str) -> bool:
+        """Freshness AS REPORTED to callers (envelope / cache_status / health).
+
+        Distinct from is_fresh(), which drives DataService's refetch decision and
+        for a 0-TTL "always-live" type is deliberately always False (refetch every
+        call). For reporting, a just-fetched always-live type IS fresh: we grant it
+        a short grace window so a successful live pull reads as fresh, while an old
+        always-live entry (a failed-fetch fallback DataService served) honestly
+        reads as stale. Non-always-live types report their plain TTL freshness.
+        """
+        lr = self._last_refresh(data_type)
+        always_live = self._ttl_for(data_type) == 0 and lr is not None
+        if always_live:
+            age = self.age_seconds(data_type)
+            return age is not None and age < ALWAYS_LIVE_GRACE_SECONDS
+        return self.is_fresh(data_type)
+
     def freshness(self, data_type: str) -> dict:
         """Freshness metadata for one data type, for surfacing to the caller.
 
         Returns as_of (ISO-8601 UTC of last refresh, or None if never stored),
-        age_seconds, and fresh (within TTL).
-
-        A 0-TTL type is "always-live" — DataService refetches it on every call,
-        so a successful fetch leaves it fresh. But DataService serves stale
-        cache when a fetch fails, so we only call an always-live type fresh when
-        its age is within a short grace window; an old always-live entry is a
-        failed-fetch fallback and is honestly reported as stale.
+        age_seconds, and fresh (the reported-fresh value; see _reported_fresh).
         """
         lr = self._last_refresh(data_type)
         as_of = (
@@ -120,13 +138,10 @@ class SqliteCache:
             if lr is None
             else datetime.datetime.fromtimestamp(lr, tz=datetime.timezone.utc).isoformat()
         )
-        age = self.age_seconds(data_type)
-        always_live = self._ttl_for(data_type) == 0 and lr is not None
-        fresh = (age < ALWAYS_LIVE_GRACE_SECONDS) if always_live else self.is_fresh(data_type)
         return {
             "as_of": as_of,
-            "age_seconds": age,
-            "fresh": fresh,
+            "age_seconds": self.age_seconds(data_type),
+            "fresh": self._reported_fresh(data_type),
         }
 
     def invalidate(self, data_type: str) -> None:
@@ -145,7 +160,10 @@ class SqliteCache:
                 {
                     "data_type": data_type,
                     "age_seconds": self.age_seconds(data_type),
-                    "fresh": self.is_fresh(data_type),
+                    # reported freshness (grace-aware for always-live types), so a
+                    # just-fetched always-live type like `accounts` doesn't read as
+                    # stale here and wrongly flip health_check to degraded.
+                    "fresh": self._reported_fresh(data_type),
                     "source": source,
                     "count": len(json.loads(payload)),
                 }

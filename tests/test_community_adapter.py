@@ -129,6 +129,35 @@ def test_balances_derived_from_accounts():
     assert all(b.date == datetime.date(2026, 2, 1) for b in bals)
 
 
+def test_accounts_prefer_display_balance_and_expose_trust_fields():
+    # A funded manual/asset account whose currentBalance is null but displayBalance
+    # is real — reading currentBalance alone reported it as $0 (the D-1 bug).
+    data = {
+        "accounts": [
+            {
+                "id": "acc-1",
+                "displayName": "Coinbase",
+                "currentBalance": None,
+                "displayBalance": 4510.98,
+                "includeInNetWorth": True,
+            },
+            {
+                "id": "acc-2",
+                "displayName": "Dead Corp Card",
+                "currentBalance": -579.80,
+                "displayBalance": -579.80,
+                "includeInNetWorth": False,
+            },
+        ]
+    }
+    accts = {a.name: a for a in _adapter(transport=_stub_transport(data)).get_accounts()}
+    assert accts["Coinbase"].latest_balance == Decimal("4510.98")  # not $0
+    assert accts["Coinbase"].account_id == "acc-1"
+    assert accts["Coinbase"].include_in_net_worth is True
+    assert accts["Dead Corp Card"].account_id == "acc-2"
+    assert accts["Dead Corp Card"].include_in_net_worth is False
+
+
 def test_transactions_paginated_and_mapped():
     txns = _adapter().get_transactions()
     assert len(txns) == 3  # 2 pages stitched
@@ -203,6 +232,31 @@ def test_transactions_paginate_when_totalcount_absent():
         SESSION, transport=transport, today=lambda: datetime.date(2026, 2, 1), page_size=1
     )
     assert len(a.get_transactions()) == 1
+
+
+def test_transactions_dedupe_overlapping_pages_by_id():
+    """A shifting page boundary that repeats an id must not double-count a txn."""
+    t1 = dict(_TXN_PAGES[0]["allTransactions"]["results"][0])  # id "t1"
+    t2 = dict(_TXN_PAGES[0]["allTransactions"]["results"][1])  # id "t2"
+    # Page 2 overlaps: it repeats t2 (as if a new txn shifted the window) plus t3.
+    t3 = dict(_TXN_PAGES[1]["allTransactions"]["results"][0])  # id "t3"
+    pages = [
+        {"allTransactions": {"results": [t1, t2]}},
+        {"allTransactions": {"results": [t2, t3]}},  # t2 repeated across the boundary
+        {"allTransactions": {"results": []}},
+    ]
+
+    async def transport(operation, query, variables):
+        page = variables["offset"] // 2
+        return pages[page] if page < len(pages) else {"allTransactions": {"results": []}}
+
+    a = CommunityAdapter(
+        SESSION, transport=transport, today=lambda: datetime.date(2026, 2, 1), page_size=2
+    )
+    txns = a.get_transactions()
+    ids = [t.id for t in txns]
+    assert ids == ["t1", "t2", "t3"]        # t2 appears exactly once
+    assert len(ids) == len(set(ids))         # no duplicate ids at all
 
 
 # Tests for the real _default_transport (Finding #2)

@@ -23,9 +23,23 @@ class Transaction(BaseModel):
 
     @staticmethod
     def synth_id(
-        date: datetime.date, merchant: str, amount: Decimal, original_statement: str
+        date: datetime.date,
+        merchant: str,
+        amount: Decimal,
+        original_statement: str,
+        ordinal: int = 0,
     ) -> str:
+        """Deterministic id for a transaction that has no native Monarch id.
+
+        `ordinal` disambiguates two genuinely-distinct rows that share the same
+        (date, merchant, amount, original_statement) — e.g. two identical CSV
+        purchases — so they don't collapse into one id and get summed as one.
+        ordinal=0 (the default) appends nothing, keeping the id byte-identical to
+        the pre-ordinal hash so the live adapter's id fallback is unchanged.
+        """
         key = f"{date.isoformat()}|{merchant}|{amount}|{original_statement}"
+        if ordinal:
+            key += f"|{ordinal}"
         return hashlib.sha1(key.encode("utf-8")).hexdigest()
 
 
@@ -39,6 +53,16 @@ class Account(BaseModel):
     name: str
     latest_balance: Decimal
     as_of: datetime.date
+    # Trust fields (Increment 1 "Honest Data"). Defaults keep older callers and
+    # the CSV path working; the live adapter + the get_accounts tool populate them.
+    account_id: str = ""
+    include_in_net_worth: bool = True
+    # is_carry_forward / snapshot_date are the honest per-account observation
+    # facts. The adapter cannot know them (no snapshot access), so they default
+    # here and the get_accounts tool enriches them from balance-history snapshots
+    # (see analytics.balances.merge_carry_forward).
+    is_carry_forward: bool = False
+    snapshot_date: datetime.date | None = None
 
 
 class BalanceSnapshot(BaseModel):

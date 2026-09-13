@@ -29,6 +29,10 @@ class CsvAdapter(MonarchAdapter):
 
     def get_transactions(self) -> list[Transaction]:
         out: list[Transaction] = []
+        # Count occurrences of each identity tuple so two genuinely-distinct rows
+        # that look identical get distinct ids (ordinal) rather than colliding
+        # into one synth_id and being silently summed as a single transaction.
+        seen: dict[tuple, int] = {}
         with open(self._transactions_path, newline="", encoding="utf-8") as fh:
             for row in csv.DictReader(fh):
                 date = _parse_date(row["Date"])
@@ -40,9 +44,12 @@ class CsvAdapter(MonarchAdapter):
                     )
                 amount = Decimal(amount_str)
                 original = row["Original Statement"].strip()
+                identity = (date, merchant, amount, original)
+                ordinal = seen.get(identity, 0)
+                seen[identity] = ordinal + 1
                 out.append(
                     Transaction(
-                        id=Transaction.synth_id(date, merchant, amount, original),
+                        id=Transaction.synth_id(date, merchant, amount, original, ordinal),
                         date=date,
                         merchant=merchant,
                         category=row["Category"].strip(),
@@ -81,7 +88,16 @@ class CsvAdapter(MonarchAdapter):
             if cur is None or bal.date > cur.date:
                 latest[bal.account] = bal
         return [
-            Account(name=name, latest_balance=b.balance, as_of=b.date)
+            # CSV has no stable account id, so the name is the identity. The
+            # balance-row date IS the real observation date here, so it is an
+            # honest snapshot_date; CSV has no carry-forward concept.
+            Account(
+                name=name,
+                latest_balance=b.balance,
+                as_of=b.date,
+                account_id=name,
+                snapshot_date=b.date,
+            )
             for name, b in sorted(latest.items())
         ]
 

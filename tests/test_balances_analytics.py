@@ -1,8 +1,13 @@
 import datetime
 from decimal import Decimal
 
-from financial_mcp.analytics.balances import balance_as_of, balance_delta
-from financial_mcp.monarch.models import BalanceSnapshot
+from financial_mcp.analytics.balances import (
+    balance_as_of,
+    balance_delta,
+    latest_snapshot_date,
+    merge_carry_forward,
+)
+from financial_mcp.monarch.models import Account, BalanceSnapshot
 
 D = datetime.date
 
@@ -83,3 +88,43 @@ def test_delta_null_when_endpoint_missing():
     bro = next(r for r in rows if r["account_id"] == "broker")
     assert bro["delta"] is None
     assert "reason" in bro
+
+
+def test_latest_snapshot_date():
+    assert latest_snapshot_date([]) is None
+    assert latest_snapshot_date(_snaps()) == D(2026, 6, 28)
+
+
+def _accounts():
+    return [
+        Account(name="Checking", latest_balance=Decimal("100"), as_of=D(2026, 6, 28),
+                account_id="a1"),
+        Account(name="Old Savings", latest_balance=Decimal("50"), as_of=D(2026, 6, 28),
+                account_id="a2"),
+        Account(name="Brand New", latest_balance=Decimal("7"), as_of=D(2026, 6, 28),
+                account_id="a3"),  # no snapshot series
+    ]
+
+
+def test_merge_carry_forward_enriches_and_keeps_every_account():
+    snaps = [
+        BalanceSnapshot(account_id="a1", display_name="Checking", date=D(2026, 6, 28),
+                        balance=Decimal("100"), include_in_net_worth=True),
+        BalanceSnapshot(account_id="a2", display_name="Old Savings", date=D(2026, 6, 1),
+                        balance=Decimal("50"), include_in_net_worth=True),
+    ]
+    out = {a.account_id: a for a in merge_carry_forward(_accounts(), snaps)}
+    assert len(out) == 3  # full coverage — the zero-snapshot account is NOT dropped
+    # reference date = latest snapshot present = 2026-06-28
+    assert out["a1"].is_carry_forward is False
+    assert out["a1"].snapshot_date == D(2026, 6, 28)
+    assert out["a2"].is_carry_forward is True   # last snapshot predates the freshest data
+    assert out["a2"].snapshot_date == D(2026, 6, 1)
+    assert out["a3"].is_carry_forward is False  # kept defaults, not dropped
+    assert out["a3"].snapshot_date is None
+
+
+def test_merge_carry_forward_no_snapshots_returns_unchanged():
+    out = merge_carry_forward(_accounts(), [])
+    assert [a.account_id for a in out] == ["a1", "a2", "a3"]
+    assert all(a.is_carry_forward is False for a in out)

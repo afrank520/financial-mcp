@@ -1,6 +1,8 @@
 # Financial data — never committed
 *.csv
 !tests/fixtures/*.csv
+# Golden net-worth fixture — REAL account balances, captured locally, never committed
+*.local.json
 
 # Local cache / secrets
 *.db
