@@ -3,6 +3,45 @@
 All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+Work toward the advisory layer, starting with the two things an advisor has to
+get right before it can advise: telling the truth about the data, and knowing
+when *not* to trust it. Both are live on `main` and running locally; they'll be
+cut into a tagged release once the advisory tools that build on them land — **more
+is on the way.**
+
+### Honest data
+- **`net_worth` tool.** Computes net worth the way Monarch defines it (sum of
+  in-net-worth balances, excluding carry-forward placeholders), reported as of
+  the latest real snapshot date rather than a naive same-day sum — closing a
+  ~$436k overstatement the old roll-up could produce.
+- **Read tools that stop quietly lying.** `get_accounts` no longer drops
+  accounts, `source` reflects the adapter actually in use, epoch-0/1970 dates
+  no longer leak, `health_check` and `refresh_cache` report honestly, and
+  duplicate transactions are de-duplicated.
+
+### Integrity layer (the Steward)
+- **On-device integrity check.** A new `integrity_check` runs eight detectors
+  (I-1…I-8) over the local cache — stale feeds, carry-forward balances silently
+  leaving net worth, net-worth recompute mismatches, missing budgets, refresh
+  failures, duplicate transactions, and unrecognized accounts — and reports a
+  `trust` flag that goes *degraded* whenever a high-confidence problem would
+  distort the numbers.
+- **Findings ledger.** Problems are recorded in a local `findings.db` with a
+  stable identity (the same issue re-detects as one row, not a pile-up),
+  dismiss-with-reason suppression, snooze, and auto-resolution when a problem
+  stops recurring.
+- **Policy & account registry.** A `policy.yaml` (seeded on first run, never
+  overwritten) holds household rules and thresholds; `policy_get` /
+  `policy_validate` read and check it. An account registry lets the Steward tell
+  a benign carry-forward (a frozen 401k feed) from an alarming one (a live 529
+  whose balance just left net worth), and recognize every known account so it
+  only flags genuinely new ones.
+- **Five new MCP tools**, all read-only or ledger-only: `integrity_check`,
+  `findings_list`, `findings_update`, `policy_get`, `policy_validate`. No new
+  writes to Monarch.
+
 ## [1.1.0] — 2026-08-31
 
 Install hardening: a smoother, more reliable first-run on a clean Mac.
