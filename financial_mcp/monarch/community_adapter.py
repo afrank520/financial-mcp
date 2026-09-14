@@ -64,6 +64,22 @@ class CloudflareBlockedError(RuntimeError):
     tightening is diagnosable rather than mistaken for a dead token."""
 
 
+def _parse_dt(value) -> datetime.datetime | None:
+    """Parse an ISO timestamp from Monarch, treating epoch-0/1970 as 'never' (None).
+
+    Monarch sends displayLastUpdatedAt as an ISO-8601 string (often Z-suffixed).
+    An epoch-0 / year-1970 value means the account never refreshed — normalize it
+    to None so downstream code reads it as 'no real update' rather than 'updated
+    in 1970' (the epoch-0 leak Increment 1 fixed elsewhere)."""
+    if not value:
+        return None
+    try:
+        dt = datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return None if dt.year <= 1970 else dt
+
+
 def _to_account(d: dict, as_of: datetime.date) -> Account:
     # displayBalance is the value Monarch shows; currentBalance is null for many
     # manual/asset/investment accounts, so reading currentBalance alone reported a
@@ -71,12 +87,23 @@ def _to_account(d: dict, as_of: datetime.date) -> Account:
     bal = d.get("displayBalance")
     if bal is None:
         bal = d.get("currentBalance")
+    cred = d.get("credential") or {}
     return Account(
         name=d["displayName"],
         latest_balance=Decimal(str(bal or 0)),
         as_of=as_of,
         account_id=str(d.get("id") or ""),
         include_in_net_worth=bool(d.get("includeInNetWorth", True)),
+        # Connection health (I-6). A credential block means Monarch links this
+        # account to a data provider — i.e. it's *supposed* to sync. Manual and
+        # valuation accounts (Zestimate-backed real estate) have no credential, so
+        # has_credential=False exempts them from the stale check.
+        has_credential=bool(cred),
+        sync_disabled=bool(d.get("syncDisabled")),
+        is_deactivated=d.get("deactivatedAt") is not None,
+        credential_disconnected=cred.get("disconnectedFromDataProviderAt") is not None,
+        credential_update_required=bool(cred.get("updateRequired")),
+        last_updated=_parse_dt(d.get("displayLastUpdatedAt")),
     )
 
 

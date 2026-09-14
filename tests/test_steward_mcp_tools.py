@@ -73,3 +73,36 @@ def test_policy_get_and_validate(tmp_path):
     v = _tool(server, "policy_validate")()
     # the seed ships the required goals unfilled
     assert v["valid"] is False and v["missing_required"]
+
+
+def test_i6_account_finding_persists_then_auto_resolves_on_recovery(tmp_path):
+    # An I-6 per-account finding (frozen feed) must reconcile into findings.db and
+    # surface on the run it fires, then AUTO-RESOLVE on the next run once the feed
+    # reconnects — the whole point of one-finding-per-account with a stable id.
+    import datetime
+    from decimal import Decimal
+
+    from financial_mcp.monarch.models import Account
+    from financial_mcp.steward.detectors.integrity import IntegrityContext
+
+    _, steward = _steward(tmp_path)
+    as_of = datetime.date(2026, 9, 11)
+
+    def _ctx(disconnected):
+        acct = Account(
+            name="Frozen 401k", latest_balance=Decimal("90000"), as_of=as_of,
+            account_id="acct-401k", include_in_net_worth=True,
+            has_credential=True, credential_disconnected=disconnected,
+            last_updated=datetime.datetime(2026, 9, 11, tzinfo=datetime.timezone.utc),
+        )
+        return IntegrityContext(as_of=as_of, policy=steward.policy(),
+                                source="live", accounts=[acct])
+
+    broken = steward.check_with_context(_ctx(disconnected=True))
+    i6 = [f for f in broken["items"] if f["detector"] == "I-6"]
+    assert len(i6) == 1 and i6[0]["dollars_at_stake"] == 90000.0
+    fid = i6[0]["id"]
+
+    recovered = steward.check_with_context(_ctx(disconnected=False))
+    assert fid in recovered["auto_resolved"]
+    assert not [f for f in recovered["items"] if f["detector"] == "I-6"]

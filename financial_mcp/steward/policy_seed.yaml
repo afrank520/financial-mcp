@@ -48,6 +48,7 @@ categorization:
     - { rename: "Executive  Coaching", to: "Executive Coaching" }
 thresholds:
   stale_days: 3
+  i6_stale_days: 7                # live-credentialed account frozen this long ⇒ I-6
   weekly_band_window_weeks: 26
   weekly_band_consecutive: 2
   yoy_min_dollars: 250

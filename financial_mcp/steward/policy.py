@@ -65,6 +65,13 @@ class Policy:
     def stale_days(self) -> int:
         return int(self.thresholds.get("stale_days", 3))
 
+    @property
+    def i6_stale_days(self) -> int:
+        """Days a live-credentialed account may go without a refresh before I-6
+        flags it. Looser than stale_days because a linked feed legitimately lags a
+        day or two; only a genuinely frozen feed should fire."""
+        return int(self.thresholds.get("i6_stale_days", 7))
+
     # --- categorization ---------------------------------------------------
     @property
     def _categorization(self) -> dict:

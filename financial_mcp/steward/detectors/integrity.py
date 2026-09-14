@@ -206,27 +206,110 @@ def detect_i5_budgets_missing(ctx: IntegrityContext) -> list[Finding]:
     ]
 
 
-def detect_i6_refresh_failure(ctx: IntegrityContext) -> list[Finding]:
-    """Any refresh error or epoch-0 timestamp (the D-2/D-3 class)."""
-    if not ctx.refresh_errors and not ctx.epoch_zero_types:
+def _i6_account_reasons(a: Account, ctx: IntegrityContext) -> list[str]:
+    """Which refresh problems (if any) a live-credentialed account has.
+
+    Accounts with no credential (manual entries, Zestimate-backed valuations like
+    Branwood) are *supposed* never to sync, so they're exempt — returning [] keeps
+    an old last_updated from crying wolf. Only accounts Monarch links to a data
+    provider are held to the "should be fresh" standard.
+    """
+    if not a.has_credential:
         return []
-    return [
-        _f(
-            detector="I-6",
-            subject_key="refresh",
-            title="Cache refresh problem",
-            summary="One or more data types failed to refresh or carry an "
-            "epoch-0 timestamp; their figures may be stale.",
-            dollars_at_stake=0.0,
-            distortion=True,
-            actions_to_fix=1,
-            confidence="high",
-            evidence={"figures": {
-                "refresh_errors": ctx.refresh_errors,
-                "epoch_zero_types": ctx.epoch_zero_types,
-            }},
+    # Registry guard (live-prove 2026-09-14: without it, 13 of 18 findings were
+    # registry-known-dead accounts — a 72% noise rate on the daily gate). Mirror
+    # I-3's two exemptions: a feed problem on an account whose carry-forward is
+    # *expected* (a known frozen 401k/HELOC) or that is *excluded from net worth*
+    # (legacy 529s, excluded cards) distorts no figure Adam reads, so it's noise.
+    # The five live 529s survive this: they're watch_carry_forward (not expected)
+    # and included in net worth, so their update_required still fires.
+    if registry.is_expected_carry_forward(a.account_id) or not a.include_in_net_worth:
+        return []
+    reasons: list[str] = []
+    if a.credential_disconnected:
+        reasons.append("disconnected")
+    if a.credential_update_required:
+        reasons.append("update_required")
+    if a.sync_disabled:
+        reasons.append("sync_disabled")
+    if a.is_deactivated:
+        reasons.append("deactivated")
+    # Stale: a live feed whose last real update is older than the I-6 threshold.
+    # last_updated is None when it never refreshed (or was epoch-0, normalized to
+    # None by the adapter) — that's a frozen feed too.
+    cutoff_dt = datetime.datetime.combine(
+        ctx.as_of - datetime.timedelta(days=ctx.policy.i6_stale_days),
+        datetime.time.min,
+        tzinfo=datetime.timezone.utc,
+    )
+    lu = a.last_updated
+    if lu is not None and lu.tzinfo is None:
+        lu = lu.replace(tzinfo=datetime.timezone.utc)
+    if lu is None or lu < cutoff_dt:
+        reasons.append("stale")
+    return reasons
+
+
+_I6_REASON_TEXT = {
+    "disconnected": "the bank/provider link is disconnected",
+    "update_required": "the connection needs re-authentication",
+    "sync_disabled": "syncing is turned off",
+    "deactivated": "the account is deactivated",
+    "stale": "it hasn't refreshed within the freshness window",
+}
+
+
+def detect_i6_refresh_failure(ctx: IntegrityContext) -> list[Finding]:
+    """Refresh integrity: per-account feed problems, plus type-level epoch-0.
+
+    One finding PER affected account (stable id keyed by account_id) so each
+    resolves independently as its feed recovers; the reasons list carries every
+    applicable signal. A separate refresh-level finding covers data types that
+    read as never-refreshed / epoch-0 (the D-2/D-3 class).
+    """
+    out: list[Finding] = []
+    for a in ctx.accounts:
+        reasons = _i6_account_reasons(a, ctx)
+        if not reasons:
+            continue
+        why = "; ".join(_I6_REASON_TEXT[r] for r in reasons)
+        removed = abs(float(a.latest_balance))
+        out.append(
+            _f(
+                detector="I-6",
+                subject_key=f"acct:{a.account_id}",
+                title=f"Feed problem: {a.name}",
+                summary=f"{a.name} looks like a frozen/broken feed — {why}. Its "
+                f"${removed:,.2f} balance may be stale; reconnect or confirm the account.",
+                dollars_at_stake=removed,
+                distortion=True,
+                actions_to_fix=1,
+                confidence="high",
+                evidence={
+                    "account_ids": [a.account_id],
+                    "figures": {"reasons": reasons, "balance": removed},
+                },
+            )
         )
-    ]
+    if ctx.refresh_errors or ctx.epoch_zero_types:
+        out.append(
+            _f(
+                detector="I-6",
+                subject_key="refresh",
+                title="Cache refresh problem",
+                summary="One or more data types failed to refresh or carry an "
+                "epoch-0 timestamp; their figures may be stale.",
+                dollars_at_stake=0.0,
+                distortion=True,
+                actions_to_fix=1,
+                confidence="high",
+                evidence={"figures": {
+                    "refresh_errors": ctx.refresh_errors,
+                    "epoch_zero_types": ctx.epoch_zero_types,
+                }},
+            )
+        )
+    return out
 
 
 def detect_i7_duplicate_txns(ctx: IntegrityContext) -> list[Finding]:

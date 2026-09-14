@@ -96,7 +96,21 @@ class Ledger:
         ).fetchone()
 
     @staticmethod
-    def _is_backlog(status: str, times_shown: int) -> bool:
+    def _is_backlog(
+        status: str,
+        times_shown: int,
+        layer: str = "",
+        confidence: str = "",
+        distortion: bool = False,
+    ) -> bool:
+        # A live high-confidence integrity distortion never ages out of the brief:
+        # an unresolved distortion is unresolved no matter how many times it's been
+        # shown, and letting it demote is a silent lie about trust. (Live-prove
+        # 2026-09-14: five 529 findings totaling $200,704.89 demoted to backlog at
+        # times_shown=3 while the Steward reported "trust: ok".) This mirrors the
+        # needs_input exemption — some findings must not be quietly shelved.
+        if layer == "integrity" and confidence == "high" and distortion:
+            return False
         return status in ("new", "open") and times_shown >= _BACKLOG_SHOWINGS
 
     def _row_to_dict(self, row: sqlite3.Row) -> dict:
@@ -116,7 +130,20 @@ class Ledger:
         d["snooze_until"] = row["snooze_until"]
         d["dismiss_reason"] = row["dismiss_reason"]
         d["resolved_by"] = row["resolved_by"]
-        d["is_backlog"] = self._is_backlog(row["status"], row["times_shown"])
+        # distortion lives in the JSON payload, not a typed column. Fail SAFE: a
+        # payload written by a pre-distortion build lacks the key, and for a
+        # high-confidence integrity finding the whole point of the exemption is to
+        # never hide a distortion — so an absent key is treated as distortion=True
+        # rather than silently letting it demote to backlog.
+        raw_distortion = d.get("distortion")
+        distortion = True if raw_distortion is None else bool(raw_distortion)
+        d["is_backlog"] = self._is_backlog(
+            row["status"],
+            row["times_shown"],
+            layer=row["layer"],
+            confidence=row["confidence"],
+            distortion=distortion,
+        )
         return d
 
     def get(self, finding_id: str) -> dict | None:

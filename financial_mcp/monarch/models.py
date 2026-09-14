@@ -63,6 +63,15 @@ class Account(BaseModel):
     # (see analytics.balances.merge_carry_forward).
     is_carry_forward: bool = False
     snapshot_date: datetime.date | None = None
+    # Connection-health fields (Steward Phase 3, I-6). Monarch's GET_ACCOUNTS
+    # already returns these; the live adapter maps them, CSV/older callers keep
+    # the defaults below (no credential ⇒ manual/valuation ⇒ never flagged by I-6).
+    has_credential: bool = False           # linked to a data provider (i.e. supposed to sync)
+    sync_disabled: bool = False            # Monarch's syncDisabled
+    is_deactivated: bool = False           # Monarch's deactivatedAt is set
+    credential_disconnected: bool = False  # credential.disconnectedFromDataProviderAt is set
+    credential_update_required: bool = False  # credential.updateRequired (re-auth needed)
+    last_updated: datetime.datetime | None = None  # displayLastUpdatedAt (None or epoch-0 ⇒ never)
 
 
 class BalanceSnapshot(BaseModel):

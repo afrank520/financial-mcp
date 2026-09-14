@@ -28,16 +28,17 @@ def _utc(y, m, d):
     return datetime.datetime(y, m, d, tzinfo=datetime.timezone.utc)
 
 
-def _f(detector="I-3", subject="acct:1", dollars=1000.0, distortion=True, actions=1):
+def _f(detector="I-3", subject="acct:1", dollars=1000.0, distortion=True, actions=1,
+       layer="integrity", confidence="high"):
     return Finding.new(
         detector=detector,
         subject_key=subject,
-        layer="integrity",
+        layer=layer,
         title="t",
         dollars_at_stake=dollars,
         distortion=distortion,
         actions_to_fix=actions,
-        confidence="high",
+        confidence=confidence,
     )
 
 
@@ -162,18 +163,67 @@ def test_auto_resolve_only_for_detectors_that_ran(tmp_path):
     assert led.get(f.id)["status"] == "new"
 
 
+def _cosmetic(**kw):
+    # a non-distorting maintenance/notice finding — the kind backlog is FOR
+    kw.setdefault("detector", "M-1")
+    kw.setdefault("layer", "notice")
+    kw.setdefault("distortion", False)
+    kw.setdefault("dollars", 0.0)
+    return _f(**kw)
+
+
 def test_backlog_demotion_after_three_unactioned_showings(tmp_path):
     clock = Clock(_utc(2026, 9, 11))
     led = _ledger(tmp_path, clock)
-    fid = _f().id
+    fid = _cosmetic().id
     for day in (11, 12, 13):
         clock.t = _utc(2026, 9, day)
-        res = led.reconcile([_f()], detectors_run=["I-3"])
+        res = led.reconcile([_cosmetic()], detectors_run=["M-1"])
     assert led.get(fid)["times_shown"] == 3
     assert led.get(fid)["is_backlog"] is True
     # backlog items are surfaced separately, not in the main surfaced list
     assert fid not in [r["id"] for r in res["surfaced"]]
     assert fid in [r["id"] for r in res["backlog"]]
+
+
+def test_high_integrity_distortion_never_demotes_to_backlog(tmp_path):
+    # Live-prove 2026-09-14 ship-blocker: five 529 findings ($200,704.89) demoted
+    # to backlog at times_shown=3 while the Steward reported "trust: ok". A live
+    # high-confidence integrity distortion must ALWAYS surface until resolved —
+    # an unresolved distortion is unresolved no matter how many times it's shown.
+    clock = Clock(_utc(2026, 9, 11))
+    led = _ledger(tmp_path, clock)
+    fid = _f(detector="I-6", subject="acct:529").id
+    for day in (11, 12, 13, 14):  # four showings — well past the 3x threshold
+        clock.t = _utc(2026, 9, day)
+        res = led.reconcile([_f(detector="I-6", subject="acct:529")], detectors_run=["I-6"])
+    assert led.get(fid)["times_shown"] == 4
+    assert led.get(fid)["is_backlog"] is False
+    assert fid in [r["id"] for r in res["surfaced"]]
+    assert fid not in [r["id"] for r in res["backlog"]]
+
+
+def test_integrity_exemption_fails_safe_when_payload_lacks_distortion(tmp_path):
+    # A finding written by a pre-distortion build has no "distortion" key in its
+    # stored payload. For a high integrity finding the exemption must still apply
+    # (fail-safe: never silently hide a possible distortion in backlog).
+    import json
+
+    clock = Clock(_utc(2026, 9, 11))
+    led = _ledger(tmp_path, clock)
+    f = _f(detector="I-6", subject="acct:legacy")
+    for day in (11, 12, 13):
+        clock.t = _utc(2026, 9, day)
+        led.reconcile([_f(detector="I-6", subject="acct:legacy")], detectors_run=["I-6"])
+    # simulate an old payload that predates the distortion field
+    row = led._get_row(f.id)
+    payload = json.loads(row["payload"])
+    payload.pop("distortion", None)
+    led._conn.execute("UPDATE findings SET payload=? WHERE id=?",
+                      (json.dumps(payload), f.id))
+    led._conn.commit()
+    assert "distortion" not in json.loads(led._get_row(f.id)["payload"])
+    assert led.get(f.id)["is_backlog"] is False  # fail-safe: still surfaces
 
 
 def test_list_filters_by_status_and_detector(tmp_path):
