@@ -60,3 +60,46 @@ def test_new_entity_savings_is_flagged_new():
     e = registry.registry_state("253413397873179968")
     assert e is not None
     assert "new" in e.states
+
+
+def test_five_live_529s_supersede_their_old_entities():
+    # Lineage (I-9): each re-authed live 529 replaces its March-migration old
+    # entity. The names differ across the pair (Lexi 529 (02) vs Alexis 529 (02,
+    # old entity)), so only this explicit link ties them to the same holding.
+    expected = {
+        "237313796790435071": "169485859791191359",  # Braden 529 (01)
+        "237313797006441728": "169485859965254976",  # Lexi 529 (02) → Alexis old
+        "237313797074599169": "169485860012440897",  # Colton 529 (03)
+        "237313797134368002": "169485860059626818",  # Dylan 529 (04)
+        "237313797209865475": "169485860105764163",  # Elaina 529 (05)
+    }
+    for live_id, old_id in expected.items():
+        assert registry.supersedes_id(live_id) == old_id
+        # the old entity is registered too, so the pair is fully known
+        assert registry.is_known(old_id) is True
+
+
+def test_supersedes_id_is_none_for_non_lineage_accounts():
+    # A normal live account supersedes nothing.
+    assert registry.supersedes_id("169483278280965580") is None  # Adams Checking
+    # An unknown id likewise.
+    assert registry.supersedes_id("999999999999999999") is None
+
+
+def test_supersedes_values_are_unique():
+    # The reverse lineage map (_SUPERSEDED_BY) would silently drop a collision if
+    # two live entries ever declared the same old id. Guard that invariant.
+    olds = [e.supersedes for e in registry.REGISTRY.values() if e.supersedes]
+    assert len(olds) == len(set(olds))
+    # every superseded old id is itself a registered account
+    for old in olds:
+        assert registry.is_known(old)
+
+
+def test_same_holding_links_both_directions():
+    # same_holding pairs a live account with the old entity it replaces, in
+    # either lookup direction, so the I-9 detector can group them.
+    live, old = "237313796790435071", "169485859791191359"
+    assert registry.same_holding(live) == old
+    assert registry.same_holding(old) == live
+    assert registry.same_holding("169483278280965580") is None

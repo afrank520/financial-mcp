@@ -104,6 +104,7 @@ def _to_account(d: dict, as_of: datetime.date) -> Account:
         credential_disconnected=cred.get("disconnectedFromDataProviderAt") is not None,
         credential_update_required=bool(cred.get("updateRequired")),
         last_updated=_parse_dt(d.get("displayLastUpdatedAt")),
+        is_hidden=bool(d.get("isHidden")),
     )
 
 

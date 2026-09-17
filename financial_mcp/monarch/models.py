@@ -72,6 +72,10 @@ class Account(BaseModel):
     credential_disconnected: bool = False  # credential.disconnectedFromDataProviderAt is set
     credential_update_required: bool = False  # credential.updateRequired (re-auth needed)
     last_updated: datetime.datetime | None = None  # displayLastUpdatedAt (None or epoch-0 ⇒ never)
+    # Visibility (Steward Phase 3, I-9). Monarch's isHidden — a hidden account
+    # that still counts in net worth is an "invisible but counted" distortion.
+    # Fetched by GET_ACCOUNTS; CSV/older callers keep the default (not hidden).
+    is_hidden: bool = False                # Monarch's isHidden
 
 
 class BalanceSnapshot(BaseModel):
