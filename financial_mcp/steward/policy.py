@@ -72,6 +72,21 @@ class Policy:
         day or two; only a genuinely frozen feed should fire."""
         return int(self.thresholds.get("i6_stale_days", 7))
 
+    @property
+    def i9_shadow_tolerance(self) -> float:
+        """Fractional balance gap under which an UNREGISTERED account is treated as
+        a possible duplicate of a registered one (I-9 balance-shadow). The real
+        re-auth 529 pairs sit ~2% apart; 0.05 catches them with margin while
+        staying tight enough that unrelated accounts rarely collide."""
+        return float(self.thresholds.get("i9_shadow_tolerance", 0.05))
+
+    @property
+    def i9_shadow_min_dollars(self) -> float:
+        """Materiality floor for the I-9 balance-shadow path. Below this, balances
+        (especially the many $0.00 accounts) are too small/common to treat a match
+        as a meaningful duplicate."""
+        return float(self.thresholds.get("i9_shadow_min_dollars", 1000.0))
+
     # --- categorization ---------------------------------------------------
     @property
     def _categorization(self) -> dict:

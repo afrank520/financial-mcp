@@ -158,6 +158,25 @@ def test_accounts_prefer_display_balance_and_expose_trust_fields():
     assert accts["Dead Corp Card"].include_in_net_worth is False
 
 
+def test_accounts_map_is_hidden_flag():
+    # Monarch's isHidden is fetched by GET_ACCOUNTS but was previously dropped.
+    # I-9 needs it to flag a hidden account that still counts in net worth.
+    data = {
+        "accounts": [
+            {"id": "h1", "displayName": "Hidden but counted",
+             "displayBalance": 100.0, "includeInNetWorth": True, "isHidden": True},
+            {"id": "v1", "displayName": "Visible",
+             "displayBalance": 200.0, "includeInNetWorth": True, "isHidden": False},
+            {"id": "d1", "displayName": "No flag present",
+             "displayBalance": 300.0, "includeInNetWorth": True},
+        ]
+    }
+    accts = {a.name: a for a in _adapter(transport=_stub_transport(data)).get_accounts()}
+    assert accts["Hidden but counted"].is_hidden is True
+    assert accts["Visible"].is_hidden is False
+    assert accts["No flag present"].is_hidden is False  # missing ⇒ default
+
+
 def test_transactions_paginated_and_mapped():
     txns = _adapter().get_transactions()
     assert len(txns) == 3  # 2 pages stitched

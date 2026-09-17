@@ -18,6 +18,11 @@ class RegistryEntry:
     account_id: str
     name: str
     states: frozenset[str]
+    # Lineage (I-9): the old account_id this account replaced, when a provider
+    # re-link/migration created a fresh entity for the same underlying holding.
+    # None for the vast majority of accounts. The successor carries the link
+    # (old→new is derivable, but we point from the live account we keep).
+    supersedes: str | None = None
 
 
 # States that mean "this account carrying forward is expected — do not alarm".
@@ -29,8 +34,10 @@ _EXPECTED_CF_STATES = {
 }
 
 
-def _entry(account_id: str, name: str, *states: str) -> tuple[str, RegistryEntry]:
-    return account_id, RegistryEntry(account_id, name, frozenset(states))
+def _entry(
+    account_id: str, name: str, *states: str, supersedes: str | None = None
+) -> tuple[str, RegistryEntry]:
+    return account_id, RegistryEntry(account_id, name, frozenset(states), supersedes)
 
 
 # Appendix C seed. Compound spec states are split into flags; the two range/slash
@@ -47,11 +54,14 @@ REGISTRY: dict[str, RegistryEntry] = dict(
         _entry("233056032900660408", "American Express Gold Card (…1002)", "live", "amex_float"),
         _entry("206920423728627477", "SoFi Student Loan Refinance (…7625)", "live"),
         _entry("169484667006631843", "Tracey Student Loan", "excluded_duplicate"),
-        _entry("237313796790435071", "Braden 529 (01)", "live", "watch_carry_forward"),
-        _entry("237313797006441728", "Lexi 529 (02)", "live", "watch_carry_forward"),
-        _entry("237313797074599169", "Colton 529 (03)", "live", "watch_carry_forward"),
-        _entry("237313797134368002", "Dylan 529 (04)", "live", "watch_carry_forward"),
-        _entry("237313797209865475", "Elaina 529 (05)", "live", "watch_carry_forward"),
+        # The five live 529s each supersede their March-migration old entity
+        # (the excluded_legacy ids below). I-9 uses this link to catch a
+        # double-count if an old copy ever re-enters net worth beside its live twin.
+        _entry("237313796790435071", "Braden 529 (01)", "live", "watch_carry_forward", supersedes="169485859791191359"),
+        _entry("237313797006441728", "Lexi 529 (02)", "live", "watch_carry_forward", supersedes="169485859965254976"),
+        _entry("237313797074599169", "Colton 529 (03)", "live", "watch_carry_forward", supersedes="169485860012440897"),
+        _entry("237313797134368002", "Dylan 529 (04)", "live", "watch_carry_forward", supersedes="169485860059626818"),
+        _entry("237313797209865475", "Elaina 529 (05)", "live", "watch_carry_forward", supersedes="169485860105764163"),
         # 529 old entities (01–05) from the March platform migration — duplicate
         # display names of the live 529s, all excluded from net worth. Enumerated
         # from the live 2026-09-13 ids so I-8 doesn't nag about the middle three.
@@ -98,6 +108,12 @@ WATCH_529_IDS: frozenset[str] = frozenset(
     aid for aid, e in REGISTRY.items() if "watch_carry_forward" in e.states
 )
 
+# Reverse lineage map (I-9): old_id -> live successor id, so same_holding can
+# answer from either direction. Built once from the supersedes links.
+_SUPERSEDED_BY: dict[str, str] = {
+    e.supersedes: aid for aid, e in REGISTRY.items() if e.supersedes
+}
+
 
 def registry_state(account_id: str) -> RegistryEntry | None:
     return REGISTRY.get(account_id)
@@ -116,3 +132,22 @@ def is_expected_carry_forward(account_id: str) -> bool:
 def is_watch_carry_forward(account_id: str) -> bool:
     """True for the five live 529s we actively watch for a carry-forward flip."""
     return account_id in WATCH_529_IDS
+
+
+def supersedes_id(account_id: str) -> str | None:
+    """The old account_id this account replaced, or None (I-9 lineage)."""
+    e = REGISTRY.get(account_id)
+    return e.supersedes if e else None
+
+
+def same_holding(account_id: str) -> str | None:
+    """The other account_id representing the same underlying holding, if any.
+
+    Answers from either direction: given a live successor, returns the old
+    entity it superseded; given an old entity, returns its live successor.
+    None when the account has no registered lineage twin.
+    """
+    old = supersedes_id(account_id)
+    if old is not None:
+        return old
+    return _SUPERSEDED_BY.get(account_id)

@@ -1,4 +1,4 @@
-"""Integrity detectors I-1…I-8 (Steward Phase 2, spec §6.1).
+"""Integrity detectors I-1…I-9 (Steward Phase 2–3, spec §6.1).
 
 Each detector is a pure function of an `IntegrityContext` — the already-fetched
 cache data plus policy, the ledger's prior per-account carry-forward memory, and
@@ -14,6 +14,8 @@ five live 529s are on a special watch list.
 from __future__ import annotations
 
 import datetime
+import re
+from collections import defaultdict
 from dataclasses import dataclass, field
 from decimal import Decimal
 
@@ -362,6 +364,184 @@ def detect_i8_new_account_entity(ctx: IntegrityContext) -> list[Finding]:
     return out
 
 
+# Succession markers stripped when normalizing a display name for I-9's
+# name-collision safety net. DELIBERATELY conservative: only phrases that mean
+# "this is the superseded copy" — NOT account-number tags like "(…1002)", which
+# legitimately distinguish two different Corporate Cards.
+_SUCCESSION_MARKERS = re.compile(r"\b(mx old|old entity)\b", re.IGNORECASE)
+
+
+def _normalize_holding_name(name: str) -> str:
+    """Collapse a display name to its underlying-holding key for I-9.
+
+    Strips known succession markers and the punctuation they leave behind, so
+    "Fidelity Brokerage (old entity)" and "Fidelity Brokerage" match, while
+    "Corporate Card (…1002)" and "Corporate Card (…1009)" stay distinct.
+    """
+    s = _SUCCESSION_MARKERS.sub("", name.lower())
+    s = re.sub(r",\s*(?=[)\s]|$)", "", s)  # dangling comma from an emptied tag
+    s = re.sub(r"\(\s*\)", "", s)          # now-empty parentheses
+    s = re.sub(r"\s+", " ", s).strip(" ,")
+    return s
+
+
+def _counts_in_net_worth(a: Account) -> bool:
+    """True when this account's balance is ACTUALLY summing into net worth."""
+    return a.include_in_net_worth and not a.is_carry_forward
+
+
+def detect_i9_duplicate_holding(ctx: IntegrityContext) -> list[Finding]:
+    """Two accounts for the SAME underlying holding both counting in net worth
+    (a silent double-count), plus hidden accounts that still count.
+
+    Same-holding is decided by registry lineage (an account that supersedes an
+    old entity — the re-authed 529s) OR, as a safety net for pairs we haven't
+    registered yet, a normalized display-name collision. Fires HIGH only when
+    two or more accounts in a group ACTUALLY count in net worth (included and
+    not carry-forward) — a dormant pair (old entity excluded or carried forward)
+    distorts nothing and stays silent, mirroring I-3/I-6.
+    """
+    out: list[Finding] = []
+
+    # Group accounts that represent the same holding via union-find, so both
+    # signals feed ONE grouping: a normalized-name collision AND a registry
+    # lineage link both merge accounts into the same component. Using union-find
+    # (rather than a single key per account) means a lineage pair never
+    # fragments a name group — e.g. a registered live/old 529 pair plus an
+    # unregistered third copy that shares the name all land together.
+    ided = [a for a in ctx.accounts if a.account_id]
+    parent = {a.account_id: a.account_id for a in ided}
+
+    def _find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def _union(x: str, y: str) -> None:
+        rx, ry = _find(x), _find(y)
+        if rx != ry:
+            parent[rx] = ry
+
+    by_name: dict[str, list[str]] = defaultdict(list)
+    for a in ided:
+        by_name[_normalize_holding_name(a.name)].append(a.account_id)
+    for ids in by_name.values():
+        for other in ids[1:]:
+            _union(ids[0], other)
+    for a in ided:
+        twin = registry.same_holding(a.account_id)
+        if twin is not None and twin in parent:
+            _union(a.account_id, twin)
+
+    # Balance-shadow: a re-auth can create a brand-new account with a totally
+    # different NAME (so name-collision misses) that ISN'T registered yet (so
+    # lineage misses) — the real 529 case, where "Braden R Frank (…2-01)" shadows
+    # the registered "Braden 529 (01) MX Old" within ~2%. Pair each unregistered,
+    # net-worth-counting account (above a materiality floor, so the many $0
+    # accounts don't all pair up) with a registered net-worth-counting account
+    # whose balance is within tolerance. This is the signal that survives a
+    # rename-and-recreate.
+    #
+    # Assignment is 1:1 and global-greedy (closest gap first, each account claimed
+    # once), NOT nearest-neighbour: sibling 529s hold balances close enough that
+    # greedy nearest crosses children and transitively merges three accounts into
+    # one bogus group while dropping a fourth (live-prove 2026-09-17). One-to-one
+    # keeps every duplicate as its own clean pair. Balance can't tell which
+    # sibling is which when amounts overlap, so the finding says "possible
+    # duplicate — confirm", not a hard identity claim.
+    tol = ctx.policy.i9_shadow_tolerance
+    floor = ctx.policy.i9_shadow_min_dollars
+
+    def _material_counting(known: bool) -> list[Account]:
+        return [
+            a for a in ided
+            if registry.is_known(a.account_id) == known
+            and _counts_in_net_worth(a)
+            and abs(float(a.latest_balance)) >= floor
+        ]
+
+    candidates: list[tuple[float, str, str]] = []  # (gap, unregistered_id, registered_id)
+    for u in _material_counting(known=False):
+        ubal = abs(float(u.latest_balance))
+        for r in _material_counting(known=True):
+            rbal = abs(float(r.latest_balance))
+            # max is >= floor (both operands passed the floor filter); `or 1`
+            # is belt-and-suspenders against a policy floor of 0 dividing by zero.
+            gap = abs(ubal - rbal) / (max(ubal, rbal) or 1)
+            if gap <= tol:
+                candidates.append((gap, u.account_id, r.account_id))
+    # Sort is TOTAL (gap, then ids) so ties break deterministically — Monarch
+    # returns accounts unordered, and an unstable tie-break could otherwise flip
+    # which copy is claimed between runs, churning the ledger's stable ids.
+    candidates.sort(key=lambda c: (c[0], c[1], c[2]))
+    # 1:1 assignment: each account claimed at most once. NOTE this can UNDER-report
+    # dollars when unregistered copies outnumber registered partners in one balance
+    # band (e.g. an unregistered old entity + two new copies on the same band):
+    # the extra copy is left unpaired and its dollars aren't added. Trust still
+    # degrades (at least one pair fires) so a human still looks — the dollars are a
+    # floor, not exact. Not hit by today's 5-kids data (one registered partner each).
+    claimed: set[str] = set()
+    for _gap, uid, rid in candidates:
+        if uid in claimed or rid in claimed:
+            continue
+        claimed.add(uid)
+        claimed.add(rid)
+        _union(uid, rid)
+
+    groups: dict[str, list[Account]] = defaultdict(list)
+    for a in ided:
+        groups[_find(a.account_id)].append(a)
+
+    for members in groups.values():
+        counting = [a for a in members if _counts_in_net_worth(a)]
+        if len(counting) < 2:
+            continue
+        ids = sorted(a.account_id for a in counting)
+        balances = [abs(float(a.latest_balance)) for a in counting]
+        redundant = sum(balances) - max(balances)  # keep the largest, rest is dup
+        names = ", ".join(a.name for a in counting)
+        out.append(
+            _f(
+                detector="I-9",
+                subject_key="dupe:" + ":".join(ids),
+                title=f"Same holding counted more than once: {names}",
+                summary=f"{len(counting)} accounts for the same holding all count in "
+                f"net worth ({names}); about ${redundant:,.2f} is double-counted. "
+                "Exclude the superseded/duplicate copy from net worth.",
+                dollars_at_stake=redundant,
+                distortion=True,
+                actions_to_fix=1,
+                confidence="high",
+                evidence={
+                    "account_ids": ids,
+                    "figures": {"redundant_in_net_worth": redundant},
+                },
+            )
+        )
+
+    # Hidden-but-counted: a Monarch-hidden account still summing into net worth
+    # is invisible to the eye but present in the total — its own distortion.
+    for a in ctx.accounts:
+        if a.is_hidden and _counts_in_net_worth(a):
+            bal = abs(float(a.latest_balance))
+            out.append(
+                _f(
+                    detector="I-9",
+                    subject_key=f"hidden:acct:{a.account_id}",
+                    title=f"Hidden account still in net worth: {a.name}",
+                    summary=f"{a.name} is hidden in Monarch yet its ${bal:,.2f} balance "
+                    "still counts in net worth. Confirm whether it should be excluded.",
+                    dollars_at_stake=bal,
+                    distortion=True,
+                    actions_to_fix=1,
+                    confidence="high",
+                    evidence={"account_ids": [a.account_id]},
+                )
+            )
+    return out
+
+
 _DETECTORS = [
     detect_i1_not_live,
     detect_i2_stale_data,
@@ -371,10 +551,11 @@ _DETECTORS = [
     detect_i6_refresh_failure,
     detect_i7_duplicate_txns,
     detect_i8_new_account_entity,
+    detect_i9_duplicate_holding,
 ]
 
 # the detector ids this module runs, for the ledger's auto-resolve scoping
-INTEGRITY_DETECTOR_IDS = ["I-1", "I-2", "I-3", "I-4", "I-5", "I-6", "I-7", "I-8"]
+INTEGRITY_DETECTOR_IDS = ["I-1", "I-2", "I-3", "I-4", "I-5", "I-6", "I-7", "I-8", "I-9"]
 
 
 def run_integrity(ctx: IntegrityContext) -> list[Finding]:
