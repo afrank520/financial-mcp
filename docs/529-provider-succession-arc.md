@@ -107,6 +107,36 @@ holdings` (new this run). This may be a transient mid-sync artifact captured rig
 after the pull, or a genuine D-2/D-3 type-level epoch-0. Noted for follow-up; not
 alarming on its own.
 
+## Decision: #7 (frozen-value detector) is DEFERRED until S3 evidence
+
+The S0→S2 experiment *reduced* the case for building #7 now, not increased it.
+The reasoning:
+
+- **Monarch already flags the failure, and I-6 already reads it.** I-6 fires on an
+  account independent of the timestamp whenever Monarch sets any connection-health
+  flag — `credential_update_required` (re-auth needed), `credential_disconnected`,
+  `sync_disabled`, `is_deactivated` — *as well as* the `last_updated`-based `stale`
+  signal. In the earlier real NY529 incident, re-auth bumped the timestamp and
+  defeated `stale`, but `update_required` was still catching it.
+- **#7 only earns its existence in one unobserved state:** Monarch bumps
+  `last_updated`, *clears* `update_required` (declares the feed healthy), **and
+  still serves a frozen balance.** A silently-frozen feed Monarch itself believes
+  is fine. We have never captured this state and don't know it occurs.
+- **The value-flatline heuristic #7 would need is inherently ambiguous** (the
+  Elaina lesson): a genuinely quiet account — a CD, a dormant savings, a 529 in a
+  flat market — is indistinguishable from a frozen feed by value alone. Building it
+  speculatively risks false-positives on every legitimately static account.
+
+**Plan:** at S3 (when the MX 2FA lapses, in a few days), capture the state and ask
+the decisive question — does Monarch set `credential_update_required` at/before the
+feed freezes? If yes, I-6 already covers it and #7 is closed as "covered by
+existing signal." If Monarch goes frozen while claiming healthy, #7 is justified
+and gets designed against a *captured real instance* instead of a guess. Until
+then, #7 is not built.
+
+The active follow-up is **#8 (dollars-aware gate)**, which addresses concrete noise
+in today's live output and needs no S3 evidence.
+
 ## S1 live-prove — the detect→fix→verify loop, end-to-end on real money (2026-09-25)
 
 The owner flipped "Exclude account balance" ON for the five MX Old 529s (nothing
