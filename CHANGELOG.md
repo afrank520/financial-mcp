@@ -42,6 +42,13 @@ is on the way.**
   `findings_list`, `findings_update`, `policy_get`, `policy_validate`. No new
   writes to Monarch.
 
+### Reconnect without leaving Claude
+- **`reauthenticate` tool.** When the Monarch session expires mid-chat, just ask
+  Claude to reconnect — a sign-in window opens on your Mac (and completes on its
+  own if the browser is still signed in), then the fresh session is saved *and*
+  hot-swapped into the running server, so the next request works with no Terminal
+  trip and no Claude restart. Auth-expired errors now steer you to this tool.
+
 ## [1.1.0] — 2026-08-31
 
 Install hardening: a smoother, more reliable first-run on a clean Mac.

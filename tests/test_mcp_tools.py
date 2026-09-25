@@ -2500,3 +2500,19 @@ def test_reauthenticate_tool_absent_when_no_reauth_wired(tmp_path):
     tool is not registered rather than failing at call time."""
     server = build_server(_service(tmp_path))
     assert "reauthenticate" not in server._tool_manager._tools
+
+
+def test_auth_error_hint_points_to_reauth_tool_when_wired(tmp_path):
+    """When the in-Claude reauth tool is available, the auth-error hint steers
+    users to it (no Terminal), instead of the financial-mcp-login CLI."""
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+
+    class _Expired(FakeAdapter):
+        def get_accounts(self):
+            from financial_mcp.monarch.community_adapter import SessionExpiredError
+            raise SessionExpiredError("Monarch session expired")
+
+    server = build_server(DataService(_Expired(), cache), reauth=lambda: LiveAdapter())
+    out = _tool(server, "get_accounts")()
+    assert "reauthenticate tool" in out["error"]
+    assert "financial-mcp-login" not in out["error"]

@@ -76,12 +76,20 @@ def build_server(
             "data": data,
         }
 
+    # When the in-Claude reauth tool is wired, point users at it first (no
+    # Terminal trip); otherwise fall back to the CLI hint.
+    _reauth_hint = (
+        "Re-authenticate by asking me to run the reauthenticate tool"
+        if reauth is not None
+        else "Re-authenticate: financial-mcp-login"
+    )
+
     def _guard(fn):
         """Execute fn and convert typed auth errors to friendly re-login messages."""
         try:
             return fn()
         except (SessionExpiredError, CloudflareBlockedError) as exc:
-            return {"error": f"{exc}. Re-authenticate: financial-mcp-login"}
+            return {"error": f"{exc}. {_reauth_hint}"}
 
     def _writes_enabled() -> str | None:
         if write_mode == "off":
@@ -804,7 +812,7 @@ def build_server(
         except ValueError as exc:
             return {"error": str(exc)}
         except (SessionExpiredError, CloudflareBlockedError) as exc:
-            return {"error": f"{exc}. Re-authenticate: financial-mcp-login"}
+            return {"error": f"{exc}. {_reauth_hint}"}
         return {**outcome, "source": svc.source_name()}
 
     if reauth is not None:
