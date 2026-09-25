@@ -2458,3 +2458,45 @@ def test_update_rule_undo_failure_stays_retryable(tmp_path):
     assert out["failures"][0]["rule_id"] == "r1"
     # still retryable: batch not closed
     assert journal.last_undoable_batch() is not None
+
+
+def test_reauthenticate_tool_swaps_adapter_and_reports_success(tmp_path):
+    """The reauthenticate tool drives the injected reauth callable, hot-swaps the
+    returned live adapter into the running service, and reports the fresh state."""
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(FakeAdapter(), cache)  # starts on "fake" (CSV-fallback stand-in)
+
+    def fake_reauth():
+        return LiveAdapter()  # source_name() -> "live"
+
+    server = build_server(svc, reauth=fake_reauth)
+    out = _tool(server, "reauthenticate")()
+
+    assert out.get("status") == "ok"
+    assert out.get("source") == "live"
+    assert svc.source_name() == "live"
+
+
+def test_reauthenticate_tool_reports_error_on_failure(tmp_path):
+    """A failed/cancelled sign-in surfaces a friendly error and leaves the
+    adapter untouched (still the pre-existing source)."""
+    from financial_mcp.reauth import ReauthError
+
+    svc = _service(tmp_path)  # source "fake"
+
+    def fake_reauth():
+        raise ReauthError("timed out waiting for Monarch sign-in")
+
+    server = build_server(svc, reauth=fake_reauth)
+    out = _tool(server, "reauthenticate")()
+
+    assert "error" in out
+    assert "sign-in" in out["error"]
+    assert svc.source_name() == "fake"
+
+
+def test_reauthenticate_tool_absent_when_no_reauth_wired(tmp_path):
+    """When build_server gets no reauth callable (e.g. offline CSV build), the
+    tool is not registered rather than failing at call time."""
+    server = build_server(_service(tmp_path))
+    assert "reauthenticate" not in server._tool_manager._tools

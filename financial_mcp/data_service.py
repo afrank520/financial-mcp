@@ -182,6 +182,20 @@ class DataService:
         return self._adapter.update_transaction_rule(
             rule_id, operator, value, set_category_id, set_merchant)
 
+    def swap_adapter(self, adapter: MonarchAdapter) -> None:
+        """Hot-swap the adapter this service reads through, in place.
+
+        Used by the reauthenticate path: when the server started with an expired
+        session it fell back to CSV, so the running adapter is not live. Handing
+        it a fresh live adapter here makes every subsequent read use the new
+        session with no Desktop restart. All cached types are invalidated so the
+        next read re-pulls from the live source rather than serving stale
+        CSV-fallback rows.
+        """
+        self._adapter = adapter
+        for data_type in self._fetchers():
+            self._cache.invalidate(data_type)
+
     def source_name(self) -> str:
         """The effective data source of the adapter actually in use ("live"/"csv").
 

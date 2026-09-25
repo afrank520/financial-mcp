@@ -34,6 +34,7 @@ def build_server(
     batch_cap: int = 200,
     journal=None,
     steward=None,
+    reauth=None,
 ) -> FastMCP:
     server = FastMCP("financial-mcp")
 
@@ -805,6 +806,37 @@ def build_server(
         except (SessionExpiredError, CloudflareBlockedError) as exc:
             return {"error": f"{exc}. Re-authenticate: financial-mcp-login"}
         return {**outcome, "source": svc.source_name()}
+
+    if reauth is not None:
+        @server.tool()
+        def reauthenticate() -> dict:
+            """Re-connect to Monarch when the session has expired — from here, no Terminal.
+
+            Call this when a tool reports the Monarch session is expired/needs
+            re-authentication. A Monarch sign-in window opens on the user's Mac;
+            if the browser is already signed in it completes on its own in a
+            moment, otherwise the user signs in with email + password (the Google
+            button is blocked by Monarch's bot detection). On success the fresh
+            session is saved AND swapped into this running server, so the very
+            next tool call works without restarting Claude.
+
+            Returns {status: "ok", source: "live", accounts: N} on success, or
+            {error} with an actionable message if the sign-in didn't complete.
+            """
+            from financial_mcp.reauth import ReauthError
+
+            try:
+                adapter = reauth()
+            except ReauthError as exc:
+                return {"error": f"Re-authentication didn't complete: {exc}."}
+            except Exception as exc:  # noqa: BLE001 — never crash the server on a login attempt
+                return {"error": f"Re-authentication failed: {type(exc).__name__}: {exc}."}
+            svc.swap_adapter(adapter)
+            result = _guard(lambda: {"count": len(svc.accounts())})
+            if "error" in result:
+                # Adapter swapped in but the confirming read failed — report honestly.
+                return {"status": "degraded", "source": svc.source_name(), **result}
+            return {"status": "ok", "source": svc.source_name(), "accounts": result["count"]}
 
     @server.tool()
     def recategorize_transaction(transaction_id: str, category: str) -> dict:
