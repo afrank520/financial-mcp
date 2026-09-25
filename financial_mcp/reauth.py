@@ -11,6 +11,8 @@ underlying capture/validate/save helpers are the shared, tested primitives.
 """
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import os
 from pathlib import Path
 
@@ -77,6 +79,22 @@ def _build_live_adapter(session: dict):
     return CommunityAdapter(session)
 
 
+def _run_off_loop(fn, *args):
+    """Run a blocking callable to completion, tolerating an already-running loop.
+
+    FastMCP invokes sync tools ON its running asyncio loop, but sync Playwright
+    refuses to run inside one ("Sync API inside the asyncio loop"). A fresh
+    worker thread has no running loop, so offload there when one is running.
+    Mirrors CommunityAdapter._run (same reason, same repo pattern).
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return fn(*args)  # no loop (e.g. tests, CLI) — run inline
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(fn, *args).result()
+
+
 def reauthenticate():
     """Run the full re-auth flow and return a live adapter on success.
 
@@ -84,7 +102,8 @@ def reauthenticate():
     failed validation; in either case nothing is saved.
     """
     cfg = _load_cfg()
-    session = _capture_browser_session(cfg)
+    # The browser capture (sync Playwright) must run off any running event loop.
+    session = _run_off_loop(_capture_browser_session, cfg)
     if not session:
         raise ReauthError(
             "the sign-in window did not complete — no fresh session was captured"

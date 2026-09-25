@@ -50,6 +50,44 @@ def test_reauthenticate_captures_saves_and_returns_live_adapter(monkeypatch):
     assert adapter.source_name() == "live"
 
 
+def test_capture_runs_off_the_event_loop(monkeypatch):
+    """Root-cause regression: FastMCP invokes the tool ON a running asyncio loop,
+    but sync Playwright refuses to run inside one ("Sync API inside the asyncio
+    loop"). The browser capture must be offloaded to a worker thread so it runs
+    where NO loop is visible. This asserts the capture callable sees no running
+    loop even when reauthenticate() is driven from within a running loop."""
+    import asyncio
+
+    seen = {}
+
+    def fake_capture(cfg):
+        try:
+            asyncio.get_running_loop()
+            seen["loop_visible"] = True
+        except RuntimeError:
+            seen["loop_visible"] = False
+        return {"session_id": "S", "csrftoken": "C"}
+
+    monkeypatch.setattr(reauth, "_capture_browser_session", fake_capture)
+    monkeypatch.setattr(reauth, "_validate", lambda session: True)
+
+    class _Store:
+        def save_session(self, sid, csrf):
+            pass
+
+    monkeypatch.setattr(reauth, "make_credential_store", lambda cfg: _Store())
+    monkeypatch.setattr(reauth, "_build_live_adapter", lambda session: _RecordingAdapter("live"))
+    monkeypatch.setattr(reauth, "_load_cfg", lambda: SimpleNamespace())
+
+    async def drive():
+        return reauth.reauthenticate()
+
+    adapter = asyncio.run(drive())
+
+    assert seen["loop_visible"] is False  # capture ran where sync Playwright works
+    assert adapter.source_name() == "live"
+
+
 def test_reauthenticate_raises_when_browser_cancelled(monkeypatch):
     """If the browser sign-in doesn't complete (returns None), reauth raises
     ReauthError and never saves a session."""
