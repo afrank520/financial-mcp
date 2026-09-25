@@ -48,6 +48,12 @@ is on the way.**
   own if the browser is still signed in), then the fresh session is saved *and*
   hot-swapped into the running server, so the next request works with no Terminal
   trip and no Claude restart. Auth-expired errors now steer you to this tool.
+- **Self-healing sessions.** If a request hits an expired session, the server
+  now reloads the saved login from disk and retries once — so a re-auth done
+  anywhere (the tool above, a Terminal `financial-mcp-login`, another chat) takes
+  effect on the very next request without restarting Claude. When the login is
+  genuinely dead it fails fast and prompts you to reconnect, instead of the long
+  retry hang that could otherwise occur.
 
 ## [1.1.0] — 2026-08-31
 
