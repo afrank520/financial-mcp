@@ -222,3 +222,37 @@ def test_capture_success_returns_cookies_and_closes_context(monkeypatch):
 
     assert result == {"session_id": "SID_FAKE_123", "csrftoken": "CSRF_FAKE_456"}
     assert fake_ctx_holder["ctx"].closed, "context.close() was not called after success"
+
+
+def test_default_profile_dir_is_repo_root_pw_profile():
+    """The persistent profile lives beside financial_mcp/ at the repo root, so the
+    login CLI and the reauth tool share ONE warm profile (no cold-browser desync)."""
+    from financial_mcp.monarch.browser_login import default_profile_dir
+
+    p = default_profile_dir()
+    assert p.endswith("/.pw-profile")
+    # up-two from financial_mcp/monarch/browser_login.py == repo root
+    import financial_mcp.monarch.browser_login as bl
+    from pathlib import Path
+    assert Path(p).parent == Path(bl.__file__).resolve().parents[2]
+
+
+def test_timeout_kwargs_valid(monkeypatch):
+    from financial_mcp.monarch.browser_login import timeout_kwargs
+
+    monkeypatch.setenv("FINANCIAL_MCP_LOGIN_TIMEOUT", "300")
+    assert timeout_kwargs() == {"timeout_seconds": 300}
+
+
+def test_timeout_kwargs_invalid_is_empty(monkeypatch):
+    from financial_mcp.monarch.browser_login import timeout_kwargs
+
+    monkeypatch.setenv("FINANCIAL_MCP_LOGIN_TIMEOUT", "not-a-number")
+    assert timeout_kwargs() == {}
+
+
+def test_timeout_kwargs_unset_is_empty(monkeypatch):
+    from financial_mcp.monarch.browser_login import timeout_kwargs
+
+    monkeypatch.delenv("FINANCIAL_MCP_LOGIN_TIMEOUT", raising=False)
+    assert timeout_kwargs() == {}

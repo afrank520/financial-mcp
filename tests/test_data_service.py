@@ -561,3 +561,27 @@ def test_update_transaction_rule_passthrough(tmp_path):
 
     assert svc.update_transaction_rule("r1", "contains", "ubs", "c7", None) is True
     assert adapter.calls == [("r1", "contains", "ubs", "c7", None)]
+
+
+def test_swap_adapter_replaces_source_and_invalidates_cache(tmp_path):
+    """swap_adapter hot-swaps the live adapter into a running service (the
+    reauthenticate path): source flips to the new adapter, and previously
+    cached (CSV-fallback) rows are invalidated so the next read pulls live."""
+    clock = FakeClock()
+    old = FakeAdapter()  # source_name() -> "fake"
+    svc, cache = _svc(tmp_path, clock, old)
+    svc.transactions()  # populate cache from the old adapter
+    assert cache.is_fresh("transactions")
+
+    class _LiveAdapter(FakeAdapter):
+        def source_name(self):
+            return "live"
+
+    new = _LiveAdapter()
+    svc.swap_adapter(new)
+
+    assert svc.source_name() == "live"
+    # every cached type is now stale -> next read re-pulls from the live adapter
+    assert not cache.is_fresh("transactions")
+    svc.transactions()
+    assert new.calls == 1

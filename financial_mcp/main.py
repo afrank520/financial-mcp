@@ -61,12 +61,22 @@ def main() -> None:
     journal = UndoJournal(cfg.db_path)
     # findings.db lives beside the session/policy under ~/.financial_mcp (spec §5.2)
     steward = Steward(svc, Ledger(resolve_user_path("findings.db")))
+    # Re-auth is only meaningful for a live source; the CSV build has no session
+    # to refresh. Wiring it here (vs. in build_server) keeps Playwright/config
+    # out of the tool layer and keeps the tool testable with a fake.
+    reauth = None
+    if cfg.source == "live":
+        from financial_mcp.reauth import reauthenticate
+
+        reauth = reauthenticate
+
     server = build_server(
         svc,
         write_mode=cfg.write_mode,
         batch_cap=cfg.batch_cap,
         journal=journal,
         steward=steward,
+        reauth=reauth,
     )
     server.run()
 

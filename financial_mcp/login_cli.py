@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import shlex
 import sys
-from pathlib import Path
 
 from financial_mcp.config import load_config
 from financial_mcp.credentials import KeyringCredentialStore, make_credential_store
@@ -118,25 +117,19 @@ def _browser_login() -> dict | None:
     from financial_mcp.monarch.browser_login import (
         BrowserLoginError,
         capture_session_via_browser,
+        default_profile_dir,
+        timeout_kwargs,
     )
 
-    profile_dir = str(Path(__file__).resolve().parent.parent / ".pw-profile")
     print(
         "Opening a browser for Monarch sign-in — sign in with your email and "
         "password in the window that appears (the Google sign-in button is "
         "blocked by Monarch's bot detection; use email + password)."
     )
-    kwargs = {"profile_dir": profile_dir}
-    # Optional override for a cold first-time sign-in (email+password+MFA) that
-    # needs longer than the default 180s. Ignored if unset or non-integer.
-    raw_timeout = os.environ.get("FINANCIAL_MCP_LOGIN_TIMEOUT")
-    if raw_timeout:
-        try:
-            kwargs["timeout_seconds"] = int(raw_timeout)
-        except ValueError:
-            pass
     try:
-        return capture_session_via_browser(**kwargs)
+        return capture_session_via_browser(
+            profile_dir=default_profile_dir(), **timeout_kwargs()
+        )
     except BrowserLoginError as exc:
         print(
             f"Browser login unavailable ({exc}). Falling back to manual login.",
