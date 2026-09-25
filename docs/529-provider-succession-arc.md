@@ -59,13 +59,53 @@ each state turns this into a repeatable test set.
 |---|---|---|---|
 | S0 | **BEFORE** (captured 2026-09-25) ✅ | MX Old frozen ~11d; MX New fresh but awaiting 2FA; both in NW | I-6 fires on all live 529s; I-9 flags all MX Old↔MX New pairs; `trust` = degraded |
 | S1 | **After exclude** (captured 2026-09-25) ✅ | MX Old copies excluded from net worth (owner action in Monarch); balances/timestamps untouched | I-9 clears; net-worth overstatement removed; `trust` still degraded (MX New re-auth) |
-| S2 | **After 2FA refresh** | MX New re-authed; `last_updated` bumps | I-6 clears on MX New; **#7 tests whether a bumped timestamp masks a still-frozen value** |
+| S2 | **After 2FA refresh** (captured 2026-09-25) ✅ | MX New re-authed; `last_updated` bumped 2026-09-23→2026-09-25T18:47; 4/5 balances moved, 1 flat | I-6 auto-resolved on all 5 MX New; **Case A (honest refresh)** — no blind spot this cycle |
 | S3 | **Provider expiry (later)** | MX 2FA lapses again (provider holds it only a few days) | Connection degrades again; the cycle repeats — the durable test of #7's value-flatline signal |
 
-S0 and S1 are captured (fixtures `529-arc-baseline-2026-09-25.local.json` and
-`529-arc-s1-exclude-2026-09-25.local.json`). S2–S3 are captured as the owner
-drives the real accounts through each transition; each becomes a dated
-`*.local.json` sibling of the baseline.
+S0, S1, and S2 are captured (fixtures `529-arc-baseline-2026-09-25.local.json`,
+`529-arc-s1-exclude-2026-09-25.local.json`, `529-arc-s2-reauth-2026-09-25.local.json`).
+S3 is captured when the MX 2FA next lapses; it becomes a dated `*.local.json`
+sibling of the baseline.
+
+## S2 — the 2FA refresh was an honest pull (Case A), 2026-09-25
+
+The owner completed the 2FA re-auth on the MX New connection. The capture settled
+the A/B question decisively:
+
+- **All 5 MX New `last_updated` advanced** from `2026-09-23T00:02` to
+  `2026-09-25T18:47` — a real, simultaneous pull.
+- **4 of 5 balances moved** (small downward ticks, a market dip): Braden −128.81,
+  Alexis −95.68, Colton −65.05, Dylan −36.90.
+- **All 5 MX New I-6 findings auto-resolved.** Zero 529 findings remain; the arc
+  is fully clean (Plaid Old excluded, MX Old excluded + frozen, MX New fresh).
+
+This is **Case A (honest refresh)**, *not* the feared Case B (timestamp bumps
+without a value pull). The blind spot #7 targets did not appear this cycle — it is
+most likely to surface at **S3**, when the MX 2FA lapses and a reconnect stamps a
+fresh timestamp without pulling. So #7 remains justified by the *mechanism*, but
+we do not yet have a captured live instance of it.
+
+### The Elaina lesson — why #7 can't be naive
+
+Elaina (…2-05) is the sharpest finding of the whole arc. Her `last_updated` bumped
+to `18:47:59` — a genuine pull happened, since all four siblings moved — yet her
+balance stayed **byte-identical** to S1 (`29,531.03`). A real flat day is therefore
+**indistinguishable from a frozen feed** if you only compare "did the value change
+since the last pull." A detector that flags "timestamp advanced but balance
+unchanged" would false-positive on Elaina here.
+
+**Design consequence for #7:** the frozen-value signal must be *value flatline
+across multiple confirmed independent pulls* (the balance-history series not moving
+across several distinct `last_updated` values), not a single-pull value/timestamp
+mismatch. One flat day is noise; a flat balance spanning many pulls while siblings
+move is signal.
+
+### A new type-level signal to watch
+
+Post-refresh, the type-level I-6 finding reported `epoch_zero_types: balances,
+holdings` (new this run). This may be a transient mid-sync artifact captured right
+after the pull, or a genuine D-2/D-3 type-level epoch-0. Noted for follow-up; not
+alarming on its own.
 
 ## S1 live-prove — the detect→fix→verify loop, end-to-end on real money (2026-09-25)
 
