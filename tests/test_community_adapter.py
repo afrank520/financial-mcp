@@ -278,6 +278,40 @@ def test_self_heal_retries_only_once_when_fresh_session_also_dead():
     assert state["calls"] == 2  # original + one retry, no more
 
 
+def test_self_heal_retries_with_already_healed_session_from_concurrent_call():
+    """If another caller healed self._session while this call was in flight, the
+    expiry handler retries with the now-current session instead of reloading
+    again or raising — avoids a spurious failure in the concurrency window."""
+    healed = {"session_id": "sid-HEALED", "csrftoken": "csrf-HEALED"}
+    reloads = {"count": 0}
+    stub = _stub_transport()
+    state = {"calls": 0}
+
+    def reload():
+        reloads["count"] += 1
+        return dict(SESSION)  # the stale session — proves we DON'T fall back to this
+
+    a = _adapter(reload_session=reload)
+
+    async def transport(operation, query, variables):
+        state["calls"] += 1
+        if state["calls"] == 1:
+            # Simulate a concurrent caller having swapped in a fresh session
+            # just before this call's expiry is handled.
+            a._session = healed
+            raise SessionExpiredError("expired")
+        return await stub(operation, query, variables)
+
+    a._raw_transport = transport
+
+    accts = a.get_accounts()
+
+    assert {x.name for x in accts} == {"Checking", "Credit Card"}
+    assert state["calls"] == 2          # retried
+    assert reloads["count"] == 0        # used the already-healed session, no reload
+    assert a._session == healed
+
+
 def test_self_heal_does_not_retry_cloudflare_block():
     """Cloudflare blocks aren't a session problem — reloading won't help, so
     they raise immediately without a reload/retry."""

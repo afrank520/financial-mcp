@@ -7,6 +7,7 @@ import datetime
 import json
 import logging
 import ssl
+import threading
 from collections.abc import Awaitable, Callable
 from decimal import Decimal
 
@@ -157,6 +158,11 @@ class CommunityAdapter(MonarchAdapter):
         # retry, so a session refreshed elsewhere (Terminal login, another chat)
         # is picked up mid-run instead of the process clinging to a dead token.
         self._reload_session = reload_session
+        # Serializes reload-and-swap. Today Claude Desktop drives tools one at a
+        # time over stdio, but the adapter is a single shared instance and each
+        # call runs on its own worker thread (see _run); the lock keeps a future
+        # concurrent caller from racing on self._session.
+        self._reload_lock = threading.Lock()
 
     def source_name(self) -> str:
         return "live"
@@ -165,21 +171,30 @@ class CommunityAdapter(MonarchAdapter):
         """Wrap the raw transport with self-heal on session expiry.
 
         On SessionExpiredError, reload the session from the credential store; if
-        it yields a DIFFERENT session, adopt it and retry the call exactly once.
-        A same/absent session, or a second expiry, raises — so a truly dead
+        a DIFFERENT session is now available, adopt it and retry the call exactly
+        once. A same/absent session, or a second expiry, raises — so a truly dead
         session fails fast (surfacing the re-login prompt) and never loops.
         CloudflareBlockedError is not retried: a reload can't clear a Cloudflare
         block."""
+        failed_with = self._session  # the session this call used before expiry
         try:
             return await self._raw_transport(operation, query, variables)
         except SessionExpiredError:
             if self._reload_session is None:
                 raise
-            fresh = self._reload_session()
-            if not fresh or fresh == self._session:
-                raise
-            logger.info("session expired mid-call; reloaded fresh session, retrying once")
-            self._session = fresh
+            with self._reload_lock:
+                # If a concurrent call already healed the session while we waited
+                # for the lock, retry with that one rather than reloading again.
+                if self._session != failed_with:
+                    fresh = self._session
+                else:
+                    fresh = self._reload_session()
+                    if not fresh or fresh == failed_with:
+                        raise
+                    logger.info(
+                        "session expired mid-call; reloaded fresh session, retrying once"
+                    )
+                    self._session = fresh
             return await self._raw_transport(operation, query, variables)
 
     async def _default_transport(self, operation: str, query: str, variables: dict) -> dict:
