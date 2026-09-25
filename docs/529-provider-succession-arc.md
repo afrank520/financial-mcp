@@ -57,13 +57,38 @@ each state turns this into a repeatable test set.
 
 | # | State | What changed | Expected detector behaviour |
 |---|---|---|---|
-| S0 | **BEFORE** (captured 2026-09-25) | MX Old frozen ~11d; MX New fresh but awaiting 2FA; both in NW | I-6 fires on all live 529s; I-9 flags all MX Old↔MX New pairs; `trust` = degraded |
-| S1 | **After exclude** | MX Old copies excluded from net worth (owner action in Monarch) | I-9 clears; net-worth overstatement removed; `trust` should improve |
+| S0 | **BEFORE** (captured 2026-09-25) ✅ | MX Old frozen ~11d; MX New fresh but awaiting 2FA; both in NW | I-6 fires on all live 529s; I-9 flags all MX Old↔MX New pairs; `trust` = degraded |
+| S1 | **After exclude** (captured 2026-09-25) ✅ | MX Old copies excluded from net worth (owner action in Monarch); balances/timestamps untouched | I-9 clears; net-worth overstatement removed; `trust` still degraded (MX New re-auth) |
 | S2 | **After 2FA refresh** | MX New re-authed; `last_updated` bumps | I-6 clears on MX New; **#7 tests whether a bumped timestamp masks a still-frozen value** |
 | S3 | **Provider expiry (later)** | MX 2FA lapses again (provider holds it only a few days) | Connection degrades again; the cycle repeats — the durable test of #7's value-flatline signal |
 
-S0 is captured. S1–S3 are captured as the owner drives the real accounts through
-each transition; each becomes a dated `*.local.json` sibling of the baseline.
+S0 and S1 are captured (fixtures `529-arc-baseline-2026-09-25.local.json` and
+`529-arc-s1-exclude-2026-09-25.local.json`). S2–S3 are captured as the owner
+drives the real accounts through each transition; each becomes a dated
+`*.local.json` sibling of the baseline.
+
+## S1 live-prove — the detect→fix→verify loop, end-to-end on real money (2026-09-25)
+
+The owner flipped "Exclude account balance" ON for the five MX Old 529s (nothing
+else — no Close, no Delete; balances and timestamps left frozen). The re-run
+matched the prediction **exactly, at the finding-id level**:
+
+- **10 findings auto-resolved** — precisely the five I-9 double-counts and the
+  five MX-Old I-6 findings we predicted would clear. Both detectors gate on
+  `include_in_net_worth`, so a single owner action cleared both classes at once.
+- **The five MX New I-6 findings persisted** — correct: they still count in net
+  worth and still await re-auth (`update_required`). Excluding the *old* copies
+  does not un-break the *new* connection.
+- **`trust` stayed `degraded`** — now held by the MX New re-auth need (plus some
+  savings feeds and the $0 Apple Cash), **not** by any double-count. This is the
+  honest read: the *distortion* is fixed, the *connection* is not. Two separate
+  problems, tracked independently.
+- **Ledger identity held** across the run (auto-resolve on condition-cleared,
+  keyed per account) — validating the reconcile path on live data.
+
+This is the first live-proof that the Steward closes the loop, not just detects:
+a real ~$200K net-worth overstatement was surfaced, fixed by an owner action, and
+verified gone on re-check — while the frozen source data was preserved for #7.
 
 ## Live-prove results at S0 (2026-09-25)
 
