@@ -2516,3 +2516,24 @@ def test_auth_error_hint_points_to_reauth_tool_when_wired(tmp_path):
     out = _tool(server, "get_accounts")()
     assert "reauthenticate tool" in out["error"]
     assert "financial-mcp-login" not in out["error"]
+
+
+def test_reauthenticate_tool_degraded_when_confirming_read_fails(tmp_path):
+    """The session validated inside reauth() and the adapter was swapped in, but
+    the confirming get_accounts() read then fails (e.g. transient blip). Report
+    status 'degraded' with the new source — honest, and the next call retries."""
+    from financial_mcp.monarch.community_adapter import SessionExpiredError
+
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(FakeAdapter(), cache)
+
+    class _LiveButReadFails(LiveAdapter):
+        def get_accounts(self):
+            raise SessionExpiredError("Monarch session expired")
+
+    server = build_server(svc, reauth=lambda: _LiveButReadFails())
+    out = _tool(server, "reauthenticate")()
+
+    assert out.get("status") == "degraded"
+    assert out.get("source") == "live"  # adapter WAS swapped in
+    assert "error" in out

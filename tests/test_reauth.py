@@ -27,7 +27,7 @@ def test_reauthenticate_captures_saves_and_returns_live_adapter(monkeypatch):
 
     monkeypatch.setattr(
         reauth, "_capture_browser_session",
-        lambda cfg: {"session_id": "SID_NEW", "csrftoken": "CSRF_NEW"},
+        lambda: {"session_id": "SID_NEW", "csrftoken": "CSRF_NEW"},
     )
     monkeypatch.setattr(reauth, "_validate", lambda session: True)
 
@@ -60,7 +60,7 @@ def test_capture_runs_off_the_event_loop(monkeypatch):
 
     seen = {}
 
-    def fake_capture(cfg):
+    def fake_capture():
         try:
             asyncio.get_running_loop()
             seen["loop_visible"] = True
@@ -93,7 +93,7 @@ def test_reauthenticate_raises_when_browser_cancelled(monkeypatch):
     ReauthError and never saves a session."""
     saved = {"called": False}
 
-    monkeypatch.setattr(reauth, "_capture_browser_session", lambda cfg: None)
+    monkeypatch.setattr(reauth, "_capture_browser_session", lambda: None)
 
     class _Store:
         def save_session(self, sid, csrf):
@@ -114,7 +114,7 @@ def test_reauthenticate_raises_when_validation_fails(monkeypatch):
 
     monkeypatch.setattr(
         reauth, "_capture_browser_session",
-        lambda cfg: {"session_id": "SID", "csrftoken": "CSRF"},
+        lambda: {"session_id": "SID", "csrftoken": "CSRF"},
     )
     monkeypatch.setattr(reauth, "_validate", lambda session: False)
 

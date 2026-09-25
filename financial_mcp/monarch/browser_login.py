@@ -1,8 +1,36 @@
 from __future__ import annotations
 
+import os
 import time
+from pathlib import Path
 
 _WANTED = ("session_id", "csrftoken")
+
+
+def default_profile_dir() -> str:
+    """The persistent Playwright profile shared by every sign-in path.
+
+    Both the login CLI and the in-Claude reauth tool must point at the SAME
+    profile, or a reauth would open a cold browser and lose the "completes on
+    its own if already signed in" behavior. Lives at the repo root beside
+    financial_mcp/ (this file is financial_mcp/monarch/browser_login.py, so up
+    two parents)."""
+    return str(Path(__file__).resolve().parents[2] / ".pw-profile")
+
+
+def timeout_kwargs() -> dict:
+    """Optional timeout override from FINANCIAL_MCP_LOGIN_TIMEOUT.
+
+    Returns {"timeout_seconds": int} when the env var is a valid integer, else
+    {} so capture_session_via_browser uses its default. A cold first-time
+    sign-in (email+password+MFA) can need longer than the default 180s."""
+    raw = os.environ.get("FINANCIAL_MCP_LOGIN_TIMEOUT")
+    if raw:
+        try:
+            return {"timeout_seconds": int(raw)}
+        except ValueError:
+            pass
+    return {}
 
 MONARCH_LOGIN_URL = "https://app.monarch.com/login"
 # session_id and csrftoken are scoped to different Monarch domains

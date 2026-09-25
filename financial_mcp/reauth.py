@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import logging
 import os
-from pathlib import Path
 
 from financial_mcp.config import load_config
 from financial_mcp.credentials import make_credential_store
+
+logger = logging.getLogger("financial_mcp")
 
 
 class ReauthError(RuntimeError):
@@ -30,28 +32,26 @@ def _load_cfg():
     return load_config(os.environ.get("FINANCIAL_MCP_CONFIG"))
 
 
-def _capture_browser_session(cfg) -> dict | None:
+def _capture_browser_session() -> dict | None:
     """Open the persistent-profile Chromium and capture a fresh session.
 
     Returns {"session_id", "csrftoken"} on success, or None if the browser could
     not be driven to a signed-in state (launch failure, MDM block, timeout,
     window closed). Never prints — safe to call from inside the MCP server.
+    Uses the SAME persistent profile + timeout override as the login CLI, so a
+    warm session completes on its own.
     """
     from financial_mcp.monarch.browser_login import (
         BrowserLoginError,
         capture_session_via_browser,
+        default_profile_dir,
+        timeout_kwargs,
     )
 
-    profile_dir = str(Path(__file__).resolve().parent.parent / ".pw-profile")
-    kwargs = {"profile_dir": profile_dir}
-    raw_timeout = os.environ.get("FINANCIAL_MCP_LOGIN_TIMEOUT")
-    if raw_timeout:
-        try:
-            kwargs["timeout_seconds"] = int(raw_timeout)
-        except ValueError:
-            pass
     try:
-        return capture_session_via_browser(**kwargs)
+        return capture_session_via_browser(
+            profile_dir=default_profile_dir(), **timeout_kwargs()
+        )
     except BrowserLoginError:
         return None
 
@@ -69,7 +69,10 @@ def _validate(session: dict) -> bool:
         return True
     except (SessionExpiredError, CloudflareBlockedError):
         return False
-    except Exception:  # noqa: BLE001 — cert/connection problems also mean "not usable"
+    except Exception as exc:  # noqa: BLE001 — cert/connection problems also mean "not usable"
+        # Never print (stdio); log so an unexpected failure is diagnosable
+        # rather than silently read as "session couldn't be verified".
+        logger.warning("reauth session validation failed: %s: %s", type(exc).__name__, exc)
         return False
 
 
@@ -103,7 +106,7 @@ def reauthenticate():
     """
     cfg = _load_cfg()
     # The browser capture (sync Playwright) must run off any running event loop.
-    session = _run_off_loop(_capture_browser_session, cfg)
+    session = _run_off_loop(_capture_browser_session)
     if not session:
         raise ReauthError(
             "the sign-in window did not complete — no fresh session was captured"
