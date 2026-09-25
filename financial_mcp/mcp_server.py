@@ -818,15 +818,21 @@ def build_server(
     if reauth is not None:
         @server.tool()
         def reauthenticate() -> dict:
-            """Re-connect to Monarch when the session has expired — from here, no Terminal.
+            """Reconnect to Monarch when the session has expired — the ONE-STEP fix.
 
-            Call this when a tool reports the Monarch session is expired/needs
-            re-authentication. A Monarch sign-in window opens on the user's Mac;
-            if the browser is already signed in it completes on its own in a
-            moment, otherwise the user signs in with email + password (the Google
-            button is blocked by Monarch's bot detection). On success the fresh
-            session is saved AND swapped into this running server, so the very
-            next tool call works without restarting Claude.
+            When ANY tool reports the Monarch session is expired / login needed,
+            call THIS tool first. It is the preferred recovery: do NOT tell the
+            user to open a Terminal or run `financial-mcp-login` unless this tool
+            has already been tried and failed. A Monarch sign-in window opens on
+            the user's Mac; if the browser is already signed in it finishes on its
+            own in about a second, otherwise the user signs in with email +
+            password (the Google button is blocked by Monarch's bot detection).
+            On success the fresh session is saved AND hot-swapped into this
+            running server — the user can just re-run what they were doing, with
+            no Claude restart and no Terminal trip.
+
+            Scope: this restores the LOGIN only. It does not turn on writes —
+            recategorizing or editing rules still needs write_mode safe/full.
 
             Returns {status: "ok", source: "live", accounts: N} on success, or
             {error} with an actionable message if the sign-in didn't complete.
