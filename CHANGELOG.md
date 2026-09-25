@@ -5,11 +5,15 @@ to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
-Work toward the advisory layer, starting with the two things an advisor has to
-get right before it can advise: telling the truth about the data, and knowing
-when *not* to trust it. Both are live on `main` and running locally; they'll be
-cut into a tagged release once the advisory tools that build on them land — **more
-is on the way.**
+Next up: the advisory layer that builds on the trustworthy-data foundation
+below — a `financial_context` store for goals/rules/targets, and the planning
+tools that measure behavior against them. **More is on the way.**
+
+## [1.2.0] — 2026-09-25
+
+The trustworthy-data milestone: everything an advisor has to get right *before*
+it can advise — telling the truth about the data, knowing when *not* to trust
+it, and staying connected without a Terminal trip.
 
 ### Honest data
 - **`net_worth` tool.** Computes net worth the way Monarch defines it (sum of
