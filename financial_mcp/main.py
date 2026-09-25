@@ -41,9 +41,14 @@ def _csv_or_exit(cfg: Config) -> MonarchAdapter:
 
 def build_adapter(cfg: Config) -> MonarchAdapter:
     if cfg.source == "live":
-        session = make_credential_store(cfg).load_session()
+        store = make_credential_store(cfg)
+        session = store.load_session()
         if session:
-            return CommunityAdapter(session)
+            # reload_session re-reads the credential store on demand, so an
+            # expired session gets self-healed mid-run when a fresh one was
+            # saved elsewhere (Terminal `financial-mcp-login`, another chat's
+            # reauthenticate) — no Desktop restart needed.
+            return CommunityAdapter(session, reload_session=store.load_session)
         logger.warning("no Monarch session — run `financial-mcp-login`; falling back to CSV")
         return _csv_or_exit(cfg)
     return _csv_or_exit(cfg)

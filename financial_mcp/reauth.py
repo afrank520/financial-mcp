@@ -79,7 +79,10 @@ def _validate(session: dict) -> bool:
 def _build_live_adapter(session: dict):
     from financial_mcp.monarch.community_adapter import CommunityAdapter
 
-    return CommunityAdapter(session)
+    # Give the hot-swapped adapter the same self-heal callback the startup
+    # adapter gets, so a later expiry reloads from the credential store too.
+    store = make_credential_store(_load_cfg())
+    return CommunityAdapter(session, reload_session=store.load_session)
 
 
 def _run_off_loop(fn, *args):
