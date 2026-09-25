@@ -203,6 +203,133 @@ def test_cloudflare_block_raises_typed_error():
         a.get_accounts()
 
 
+def _expire_once_then_ok(ok_data=None):
+    """A transport that raises SessionExpiredError on its FIRST call, then
+    behaves like the normal stub. Models a mid-call expiry that a reload fixes."""
+    stub = _stub_transport(ok_data)
+    state = {"calls": 0}
+
+    async def transport(operation, query, variables):
+        state["calls"] += 1
+        if state["calls"] == 1:
+            raise SessionExpiredError("expired")
+        return await stub(operation, query, variables)
+
+    return transport, state
+
+
+def test_self_heal_reloads_session_and_retries_once():
+    """On SessionExpiredError, the adapter reloads a fresh session and retries
+    the call once — the read succeeds and the new session is adopted."""
+    transport, state = _expire_once_then_ok()
+    fresh = {"session_id": "sid-NEW", "csrftoken": "csrf-NEW"}
+    a = _adapter(transport=transport, reload_session=lambda: fresh)
+
+    accts = a.get_accounts()
+
+    assert {x.name for x in accts} == {"Checking", "Credit Card"}
+    assert state["calls"] == 2  # failed once, retried once
+    assert a._session == fresh  # adopted the reloaded session
+
+
+def test_self_heal_raises_when_reloaded_session_is_unchanged():
+    """If the reload returns the SAME (still-dead) session, don't retry — fail
+    fast so a truly-expired session surfaces the re-login prompt (no grind)."""
+    transport, state = _expire_once_then_ok()
+    a = _adapter(transport=transport, reload_session=lambda: dict(SESSION))
+
+    with pytest.raises(SessionExpiredError):
+        a.get_accounts()
+    assert state["calls"] == 1  # never retried — same session is pointless
+
+
+def test_self_heal_raises_when_no_session_on_disk():
+    """If the reload finds no session at all, raise (nothing to retry with)."""
+    transport, state = _expire_once_then_ok()
+    a = _adapter(transport=transport, reload_session=lambda: None)
+
+    with pytest.raises(SessionExpiredError):
+        a.get_accounts()
+    assert state["calls"] == 1
+
+
+def test_no_reload_callback_preserves_old_raise_behavior():
+    """Back-compat: an adapter built without reload_session (tests, reauth path)
+    raises on expiry exactly as before — no reload attempted."""
+    a = _adapter(transport=_raising_transport(SessionExpiredError("expired")))
+    with pytest.raises(SessionExpiredError):
+        a.get_accounts()
+
+
+def test_self_heal_retries_only_once_when_fresh_session_also_dead():
+    """A fresh-but-also-dead session must not loop: retry exactly once, then
+    raise. Guards against an infinite reload/retry cycle."""
+    state = {"calls": 0}
+
+    async def always_expired(operation, query, variables):
+        state["calls"] += 1
+        raise SessionExpiredError("expired")
+
+    fresh = {"session_id": "sid-NEW", "csrftoken": "csrf-NEW"}
+    a = _adapter(transport=always_expired, reload_session=lambda: fresh)
+
+    with pytest.raises(SessionExpiredError):
+        a.get_accounts()
+    assert state["calls"] == 2  # original + one retry, no more
+
+
+def test_self_heal_retries_with_already_healed_session_from_concurrent_call():
+    """If another caller healed self._session while this call was in flight, the
+    expiry handler retries with the now-current session instead of reloading
+    again or raising — avoids a spurious failure in the concurrency window."""
+    healed = {"session_id": "sid-HEALED", "csrftoken": "csrf-HEALED"}
+    reloads = {"count": 0}
+    stub = _stub_transport()
+    state = {"calls": 0}
+
+    def reload():
+        reloads["count"] += 1
+        return dict(SESSION)  # the stale session — proves we DON'T fall back to this
+
+    a = _adapter(reload_session=reload)
+
+    async def transport(operation, query, variables):
+        state["calls"] += 1
+        if state["calls"] == 1:
+            # Simulate a concurrent caller having swapped in a fresh session
+            # just before this call's expiry is handled.
+            a._session = healed
+            raise SessionExpiredError("expired")
+        return await stub(operation, query, variables)
+
+    a._raw_transport = transport
+
+    accts = a.get_accounts()
+
+    assert {x.name for x in accts} == {"Checking", "Credit Card"}
+    assert state["calls"] == 2          # retried
+    assert reloads["count"] == 0        # used the already-healed session, no reload
+    assert a._session == healed
+
+
+def test_self_heal_does_not_retry_cloudflare_block():
+    """Cloudflare blocks aren't a session problem — reloading won't help, so
+    they raise immediately without a reload/retry."""
+    reloads = {"count": 0}
+
+    def reload():
+        reloads["count"] += 1
+        return {"session_id": "sid-NEW", "csrftoken": "csrf-NEW"}
+
+    a = _adapter(
+        transport=_raising_transport(CloudflareBlockedError("blocked")),
+        reload_session=reload,
+    )
+    with pytest.raises(CloudflareBlockedError):
+        a.get_accounts()
+    assert reloads["count"] == 0  # never tried to reload
+
+
 def test_get_accounts_works_inside_running_event_loop():
     """Regression: asyncio.run() raises RuntimeError when called from a running loop."""
     adapter = _adapter()

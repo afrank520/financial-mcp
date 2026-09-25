@@ -5,7 +5,9 @@ import asyncio
 import concurrent.futures
 import datetime
 import json
+import logging
 import ssl
+import threading
 from collections.abc import Awaitable, Callable
 from decimal import Decimal
 
@@ -46,6 +48,7 @@ GRAPHQL_URL = "https://api.monarch.com/graphql"
 # install to have activated its own CA certs — python.org's macOS Python ships certs
 # but never activates them, so uncontexted HTTPS calls die with CERTIFICATE_VERIFY_FAILED.
 _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+logger = logging.getLogger("financial_mcp")
 # A real-browser User-Agent keeps us clear of any future Cloudflare UA rule.
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -139,15 +142,60 @@ class CommunityAdapter(MonarchAdapter):
         transport: Callable[[str, str, dict], Awaitable[dict]] | None = None,
         today: Callable[[], datetime.date] = datetime.date.today,
         page_size: int = 100,
+        reload_session: Callable[[], dict | None] | None = None,
     ) -> None:
         self._session = session
         self._service_name = service_name
-        self._transport = transport or self._default_transport
+        # The raw transport does the actual HTTP; self._transport wraps it with
+        # the self-heal-on-expiry retry so every method (they all call
+        # self._transport) gets the behavior without change.
+        self._raw_transport = transport or self._default_transport
+        self._transport = self._authed_transport
         self._today = today
         self._page_size = page_size
+        # Optional callback that re-reads the saved session from the credential
+        # store. When set, a SessionExpiredError triggers a one-time reload +
+        # retry, so a session refreshed elsewhere (Terminal login, another chat)
+        # is picked up mid-run instead of the process clinging to a dead token.
+        self._reload_session = reload_session
+        # Serializes reload-and-swap. Today Claude Desktop drives tools one at a
+        # time over stdio, but the adapter is a single shared instance and each
+        # call runs on its own worker thread (see _run); the lock keeps a future
+        # concurrent caller from racing on self._session.
+        self._reload_lock = threading.Lock()
 
     def source_name(self) -> str:
         return "live"
+
+    async def _authed_transport(self, operation: str, query: str, variables: dict) -> dict:
+        """Wrap the raw transport with self-heal on session expiry.
+
+        On SessionExpiredError, reload the session from the credential store; if
+        a DIFFERENT session is now available, adopt it and retry the call exactly
+        once. A same/absent session, or a second expiry, raises — so a truly dead
+        session fails fast (surfacing the re-login prompt) and never loops.
+        CloudflareBlockedError is not retried: a reload can't clear a Cloudflare
+        block."""
+        failed_with = self._session  # the session this call used before expiry
+        try:
+            return await self._raw_transport(operation, query, variables)
+        except SessionExpiredError:
+            if self._reload_session is None:
+                raise
+            with self._reload_lock:
+                # If a concurrent call already healed the session while we waited
+                # for the lock, retry with that one rather than reloading again.
+                if self._session != failed_with:
+                    fresh = self._session
+                else:
+                    fresh = self._reload_session()
+                    if not fresh or fresh == failed_with:
+                        raise
+                    logger.info(
+                        "session expired mid-call; reloaded fresh session, retrying once"
+                    )
+                    self._session = fresh
+            return await self._raw_transport(operation, query, variables)
 
     async def _default_transport(self, operation: str, query: str, variables: dict) -> dict:
         """POST a GraphQL query to Monarch with cookie auth. Returns the `data`
