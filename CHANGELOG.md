@@ -5,6 +5,18 @@ to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Changed
+- **Dollars-aware trust gate.** A duplicate-holding finding (I-9) whose
+  double-counted amount is exactly $0.00 no longer flips `trust` to *degraded*
+  or leads the brief — a $0 double-count distorts nothing, so it is treated as
+  materially inert. The finding stays visible in `integrity_check` and
+  `findings_list` (nothing is hidden); only its weight on the trust flag and
+  ranking drops. The gate is opt-in per finding: it applies only where the
+  dollar amount *is* the distortion, so genuinely serious $0 findings (not
+  connected live, stale feed, refresh failure, duplicate transaction ids) keep
+  degrading trust as before. (A $0 duplicate stays surfaced every run rather
+  than aging to backlog; dismiss-with-reason if you want it held.)
+
 Next up: the advisory layer that builds on the trustworthy-data foundation
 below — a `financial_context` store for goals/rules/targets, and the planning
 tools that measure behavior against them. **More is on the way.**

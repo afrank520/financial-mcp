@@ -378,6 +378,20 @@ def test_i9_fires_high_when_lineage_pair_both_count():
     assert set(f.evidence.account_ids) == {BRADEN_529_LIVE, BRADEN_529_OLD}
 
 
+def test_i9_findings_mark_dollars_as_the_distortion():
+    # #8: I-9's dollar amount IS the distortion magnitude (double-counted $ / hidden
+    # balance), so a $0 instance is materially inert. Both I-9 shapes must opt in so
+    # the trust gate can treat a $0 I-9 as harmless without silencing $0 I-1/I-6/I-7.
+    live = _acct(BRADEN_529_LIVE, "Braden 529 (01)", 40000, inw=True)
+    old = _acct(BRADEN_529_OLD, "Braden 529 (01, old entity)", 39500, inw=True)
+    dup = I.detect_i9_duplicate_holding(_ctx(accounts=[live, old]))[0]
+    assert dup.dollars_are_the_distortion is True
+
+    hidden = _acct("hid-1", "Old Brokerage", 25000, inw=True, is_hidden=True)
+    hid = I.detect_i9_duplicate_holding(_ctx(accounts=[hidden]))[0]
+    assert hid.dollars_are_the_distortion is True
+
+
 def test_i9_fires_on_normalized_name_collision_without_registry_link():
     # Two unregistered-lineage accounts whose names normalize to the same holding
     # and both count — caught by the name-collision safety net.

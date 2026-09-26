@@ -87,6 +87,13 @@ class Finding(BaseModel):
     evidence: Evidence = Field(default_factory=Evidence)
     dollars_at_stake: float = 0.0
     distortion: bool = False
+    # #8 dollars-aware gate: True only for findings whose dollar amount IS the
+    # measure of the distortion (I-9 double-count / hidden balance). For these, a
+    # $0 instance distorts nothing and the trust gate treats it as immaterial.
+    # Left False for findings where dollars_at_stake is a placeholder and the harm
+    # is categorical (I-1 not-live, I-2 stale feed, I-6 refresh, I-7 dup ids) — those
+    # keep degrading trust at $0. Opt-in so no existing finding changes behavior.
+    dollars_are_the_distortion: bool = False
     actions_to_fix: int = Field(ge=1)
     priority: float = 0.0
     confidence: Confidence = "high"
@@ -108,6 +115,7 @@ class Finding(BaseModel):
         distortion: bool,
         actions_to_fix: int,
         confidence: Confidence,
+        dollars_are_the_distortion: bool = False,
         summary: str = "",
         evidence: dict | Evidence | None = None,
         question: str | None = None,
@@ -130,6 +138,7 @@ class Finding(BaseModel):
             evidence=evidence or Evidence(),
             dollars_at_stake=dollars_at_stake,
             distortion=distortion,
+            dollars_are_the_distortion=dollars_are_the_distortion,
             actions_to_fix=actions_to_fix,
             priority=compute_priority(distortion, dollars_at_stake, actions_to_fix),
             confidence=confidence,

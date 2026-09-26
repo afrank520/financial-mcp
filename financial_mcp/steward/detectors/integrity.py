@@ -511,6 +511,7 @@ def detect_i9_duplicate_holding(ctx: IntegrityContext) -> list[Finding]:
                 "Exclude the superseded/duplicate copy from net worth.",
                 dollars_at_stake=redundant,
                 distortion=True,
+                dollars_are_the_distortion=True,  # #8: $0 double-count is inert
                 actions_to_fix=1,
                 confidence="high",
                 evidence={
@@ -534,6 +535,7 @@ def detect_i9_duplicate_holding(ctx: IntegrityContext) -> list[Finding]:
                     "still counts in net worth. Confirm whether it should be excluded.",
                     dollars_at_stake=bal,
                     distortion=True,
+                    dollars_are_the_distortion=True,  # #8: $0 hidden balance is inert
                     actions_to_fix=1,
                     confidence="high",
                     evidence={"account_ids": [a.account_id]},
