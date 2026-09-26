@@ -154,7 +154,16 @@ finalized during implementation; the shape matches `Policy._REQUIRED_GOALS`.
 ## 6. The schema — 8 sections, seeded with the real TeamFrank plan as worked example
 
 Seeded so a new user sees a *real* filled example (not an empty abstraction), but
-with generic-enough keys that it reads as a template. Sections:
+with generic-enough keys that it reads as a template.
+
+**Privacy of the committed seed (approved 2026-09-25):** the seed ships in the
+public open-core repo, so it uses the *structure* of the TeamFrank plan with
+**placeholder numbers** (e.g. `paydown_target: <amount>`, generic dates) — never
+Adam's real balances or figures. Real numbers land only in
+`~/.financial_mcp/plan.yaml` on Adam's own machine, via `plan_update`
+conversation. The seed is a shape-accurate worked example, not a disclosure.
+
+Sections:
 
 | Section | Holds | Example (from TeamFrank) |
 |---|---|---|
