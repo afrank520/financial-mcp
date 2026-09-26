@@ -109,6 +109,8 @@ def restore_backup() -> bool:
     if not bak.exists():
         return False
     path = Path(_plan_path())
-    path.write_text(bak.read_text())
+    tmp = path.with_suffix(".yaml.tmp")
+    tmp.write_text(bak.read_text())
+    os.replace(tmp, path)   # atomic
     bak.unlink()
     return True
