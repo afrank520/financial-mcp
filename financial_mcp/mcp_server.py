@@ -1291,6 +1291,20 @@ def build_server(
         "levers", "trajectory", "watchlist", "narrative",
     }
 
+    # Per-section expected types (spec §7.2 step 1). "version" is deliberately
+    # unconstrained (int/str both fine). Only sections that are PRESENT are
+    # checked — every section is optional, so a partial plan is allowed.
+    _PLAN_SECTION_TYPES: dict[str, type] = {
+        "north_star": str,
+        "narrative": str,
+        "baseline": dict,
+        "goals": list,
+        "guardrails": list,
+        "levers": list,
+        "trajectory": list,
+        "watchlist": list,
+    }
+
     @server.tool()
     def plan_update(plan: dict, confirm_token: str | None = None) -> dict:
         """Create or replace the financial plan. Full-replace: send the ENTIRE plan
@@ -1308,6 +1322,10 @@ def build_server(
             if unknown:
                 return {"error": f"unknown plan section(s): {sorted(unknown)}. "
                         f"Allowed: {sorted(_PLAN_KEYS)}"}
+            for key, expected in _PLAN_SECTION_TYPES.items():
+                if key in plan and not isinstance(plan[key], expected):
+                    return {"error": f"section '{key}' must be a "
+                            f"{expected.__name__}, got {type(plan[key]).__name__}"}
             token = plan_mod.plan_token(plan)
             if confirm_token is None or confirm_token != token:
                 return {

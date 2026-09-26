@@ -2593,6 +2593,43 @@ def test_plan_update_rejects_non_dict(tmp_path, monkeypatch):
     assert not (tmp_path / "plan.yaml").exists()
 
 
+def test_plan_update_rejects_wrong_typed_section(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    out = _tool(server, "plan_update")(plan={"version": 1, "goals": "not a list"})
+    assert "error" in out
+    assert not (tmp_path / "plan.yaml").exists()
+
+
+def test_plan_update_rejects_str_where_list_expected(tmp_path, monkeypatch):
+    # north_star is a str section — sending a list for it must be rejected too,
+    # proving the type check isn't just list-shaped and covers other sections.
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    out = _tool(server, "plan_update")(plan={"north_star": ["not", "a", "string"]})
+    assert "error" in out
+    assert not (tmp_path / "plan.yaml").exists()
+
+
+def test_plan_update_rejects_non_dict_baseline(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    out = _tool(server, "plan_update")(plan={"baseline": "not a mapping"})
+    assert "error" in out
+    assert not (tmp_path / "plan.yaml").exists()
+
+
+def test_plan_update_accepts_valid_partial_plan(tmp_path, monkeypatch):
+    # A partial plan with correctly-typed sections must NOT be over-rejected —
+    # every section is optional, so this should reach the normal dry-run path.
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    out = _tool(server, "plan_update")(plan={"north_star": "x", "goals": []})
+    assert out["dry_run"] is True
+    assert "error" not in out
+    assert not (tmp_path / "plan.yaml").exists()
+
+
 def test_plan_update_works_with_write_mode_off(tmp_path, monkeypatch):
     # proves plan_update is NOT gated by write_mode (default is "off")
     monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
