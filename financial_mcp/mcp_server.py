@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from mcp.server.fastmcp import FastMCP
 
-from financial_mcp import writes
+from financial_mcp import plan as plan_mod, writes
 from financial_mcp.analytics import balances, budgets, holdings, networth, recurring, savings, spending
 from financial_mcp.data_service import DataService
 from financial_mcp.monarch.community_adapter import CloudflareBlockedError, SessionExpiredError
@@ -1274,6 +1274,17 @@ def build_server(
         count, when, and whether it has already been undone.
         """
         return _guard(lambda: {"history": journal.history()})
+
+    @server.tool()
+    def plan_get() -> dict:
+        """Return the full financial plan (north_star, baseline, goals, guardrails,
+        levers, trajectory, watchlist, narrative) plus which goals are still unfilled.
+        Read this at the START of any planning or steward conversation to re-ground
+        in the plan before reasoning against live data."""
+        return _guard(lambda: {
+            "plan": plan_mod.load_plan().raw,
+            "validation": plan_mod.load_plan().validate(),
+        })
 
     if steward is not None:
         _register_steward_tools(server, steward, _guard)

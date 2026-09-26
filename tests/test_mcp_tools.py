@@ -2537,3 +2537,12 @@ def test_reauthenticate_tool_degraded_when_confirming_read_fails(tmp_path):
     assert out.get("status") == "degraded"
     assert out.get("source") == "live"  # adapter WAS swapped in
     assert "error" in out
+
+
+def test_plan_get_returns_plan_and_validation(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))   # no steward, write_mode off
+    out = _tool(server, "plan_get")()
+    assert "plan" in out and "validation" in out
+    assert out["plan"]["north_star"].startswith("Pay down")
+    assert out["validation"]["valid"] is False   # seed goals unfilled
