@@ -1286,6 +1286,42 @@ def build_server(
             return {"plan": p.raw, "validation": p.validate()}
         return _guard(_run)
 
+    _PLAN_KEYS = {
+        "version", "north_star", "baseline", "goals", "guardrails",
+        "levers", "trajectory", "watchlist", "narrative",
+    }
+
+    @server.tool()
+    def plan_update(plan: dict, confirm_token: str | None = None) -> dict:
+        """Create or replace the financial plan. Full-replace: send the ENTIRE plan
+        document (after plan_get you already hold the current one, so editing =
+        re-send the whole doc with your change). Two-phase: call without confirm_token
+        to preview (writes NOTHING, returns the proposed plan + a confirm_token); call
+        again with the matching token to write. Reversible via plan_undo (restores the
+        previous version). Not gated by write_mode — the plan is your own local intent,
+        not a change to your Monarch records."""
+
+        def _run():
+            if not isinstance(plan, dict):
+                return {"error": "plan must be a mapping of the plan sections"}
+            unknown = set(plan) - _PLAN_KEYS
+            if unknown:
+                return {"error": f"unknown plan section(s): {sorted(unknown)}. "
+                        f"Allowed: {sorted(_PLAN_KEYS)}"}
+            token = plan_mod.plan_token(plan)
+            if confirm_token is None or confirm_token != token:
+                return {
+                    "dry_run": True,
+                    "plan": plan,
+                    "confirm_token": token,
+                    "note": "nothing written yet — call again with confirm_token to save",
+                }
+            plan_mod.save_plan(plan)
+            return {"saved": True,
+                    "undo_hint": "call plan_undo to restore the previous plan"}
+
+        return _guard(_run)
+
     if steward is not None:
         _register_steward_tools(server, steward, _guard)
 
