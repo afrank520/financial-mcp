@@ -2612,3 +2612,27 @@ def test_plan_update_token_does_not_transfer_across_plans(tmp_path, monkeypatch)
     out = _tool(server, "plan_update")(plan=doc_b, confirm_token=token_a)
     assert out["dry_run"] is True                       # token A cannot commit plan B
     assert not (tmp_path / "plan.yaml").exists()        # nothing written
+
+
+def test_plan_undo_restores_previous_plan(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    up = _tool(server, "plan_update")
+    for text in ("first", "second"):
+        doc = {"version": 1, "north_star": text, "goals": []}
+        up(plan=doc, confirm_token=up(plan=doc)["confirm_token"])
+    assert _tool(server, "plan_get")()["plan"]["north_star"] == "second"
+
+    out = _tool(server, "plan_undo")()
+    assert out["restored"] is True
+    assert _tool(server, "plan_get")()["plan"]["north_star"] == "first"
+
+
+def test_plan_undo_nothing_to_undo(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    doc = {"version": 1, "north_star": "only", "goals": []}
+    up = _tool(server, "plan_update")
+    up(plan=doc, confirm_token=up(plan=doc)["confirm_token"])   # first save, no backup yet
+    out = _tool(server, "plan_undo")()
+    assert out["restored"] is False

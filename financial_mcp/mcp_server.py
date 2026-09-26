@@ -1322,6 +1322,19 @@ def build_server(
 
         return _guard(_run)
 
+    @server.tool()
+    def plan_undo() -> dict:
+        """Restore the previous version of the plan (one level of undo). Reverses the
+        most recent plan_update. Returns restored: False if there is no prior version."""
+
+        def _run():
+            if plan_mod.restore_backup():
+                return {"restored": True,
+                        "message": "restored the previous plan"}
+            return {"restored": False, "message": "nothing to undo"}
+
+        return _guard(_run)
+
     if steward is not None:
         _register_steward_tools(server, steward, _guard)
 
