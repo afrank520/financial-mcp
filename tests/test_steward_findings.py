@@ -159,3 +159,35 @@ def test_finding_round_trips_through_model_dump():
     again = Finding(**d)
     assert again.id == f.id
     assert again.evidence.account_ids == ["1"]
+
+
+def test_dollars_are_the_distortion_defaults_false_and_round_trips():
+    # #8: an opt-in flag marking findings where the dollar amount IS the measure
+    # of the distortion (I-9 double-count) — so a $0 instance is materially inert.
+    # Defaults False so no existing finding changes behavior; must survive dump.
+    f = Finding.new(
+        detector="I-1",
+        subject_key="source",
+        layer="integrity",
+        title="Not connected live",
+        dollars_at_stake=0.0,
+        distortion=True,
+        actions_to_fix=1,
+        confidence="high",
+    )
+    assert f.dollars_are_the_distortion is False  # default: opt-in only
+
+    g = Finding.new(
+        detector="I-9",
+        subject_key="dupe:a:b",
+        layer="integrity",
+        title="Same holding counted twice",
+        dollars_at_stake=0.0,
+        distortion=True,
+        actions_to_fix=1,
+        confidence="high",
+        dollars_are_the_distortion=True,
+    )
+    assert g.dollars_are_the_distortion is True
+    again = Finding(**g.model_dump(mode="json"))
+    assert again.dollars_are_the_distortion is True

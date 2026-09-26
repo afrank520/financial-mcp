@@ -106,3 +106,93 @@ def test_i6_account_finding_persists_then_auto_resolves_on_recovery(tmp_path):
     recovered = steward.check_with_context(_ctx(disconnected=False))
     assert fid in recovered["auto_resolved"]
     assert not [f for f in recovered["items"] if f["detector"] == "I-6"]
+
+
+# --- #8 dollars-aware trust gate -----------------------------------------
+def _i9_ctx(steward, *, balance):
+    """A two-account same-holding double-count (the Apple Cash shape). At $0 the
+    double-count is materially inert; at a real balance it's a true distortion."""
+    import datetime
+    from decimal import Decimal
+
+    from financial_mcp.monarch.models import Account
+    from financial_mcp.steward.detectors.integrity import IntegrityContext
+
+    as_of = datetime.date(2026, 9, 25)
+
+    def _a(aid):
+        return Account(
+            name="Apple Cash", latest_balance=Decimal(str(balance)), as_of=as_of,
+            account_id=aid, include_in_net_worth=True, is_carry_forward=False,
+            snapshot_date=as_of,
+        )
+
+    return IntegrityContext(as_of=as_of, policy=steward.policy(), source="live",
+                            accounts=[_a("apple-a"), _a("apple-b")])
+
+
+def test_zero_dollar_i9_does_not_degrade_trust_but_stays_visible(tmp_path):
+    # The canonical #8 case: a $0.00 Apple Cash double-count distorts nothing, so
+    # it must NOT flip trust to degraded — yet it stays recorded and visible.
+    _, steward = _steward(tmp_path)
+    res = steward.check_with_context(_i9_ctx(steward, balance=0))
+    i9 = [f for f in res["items"] if f["detector"] == "I-9"]
+    assert len(i9) == 1                     # still surfaced / visible
+    assert i9[0]["dollars_at_stake"] == 0.0
+    assert res["trust"] == "ok"             # but does not degrade trust
+
+
+def test_nonzero_i9_still_degrades_trust(tmp_path):
+    # A real double-count is a real distortion — trust must degrade.
+    _, steward = _steward(tmp_path)
+    res = steward.check_with_context(_i9_ctx(steward, balance=500))
+    assert [f for f in res["items"] if f["detector"] == "I-9"]
+    assert res["trust"] == "degraded"
+
+
+def test_zero_dollar_i1_still_degrades_trust(tmp_path):
+    # The over-gating guard: I-1 (not connected live) is $0 but NOT dollars-denominated;
+    # it must keep degrading trust even though its dollars_at_stake is 0.
+    import datetime
+    from decimal import Decimal
+
+    from financial_mcp.monarch.models import Account
+    from financial_mcp.steward.detectors.integrity import IntegrityContext
+
+    _, steward = _steward(tmp_path)
+    as_of = datetime.date(2026, 9, 25)
+    acct = Account(name="Checking", latest_balance=Decimal("100"), as_of=as_of,
+                   account_id="chk", include_in_net_worth=True, snapshot_date=as_of)
+    ctx = IntegrityContext(as_of=as_of, policy=steward.policy(), source="csv",
+                           accounts=[acct])
+    res = steward.check_with_context(ctx)
+    i1 = [f for f in res["items"] if f["detector"] == "I-1"]
+    assert len(i1) == 1 and i1[0]["dollars_at_stake"] == 0.0
+    assert res["trust"] == "degraded"
+
+
+def test_immaterial_zero_i9_never_leads_the_brief(tmp_path):
+    # A $0 I-9 alongside a real distortion must sort BELOW the real one, never lead.
+    import datetime
+    from decimal import Decimal
+
+    from financial_mcp.monarch.models import Account
+    from financial_mcp.steward.detectors.integrity import IntegrityContext
+
+    _, steward = _steward(tmp_path)
+    as_of = datetime.date(2026, 9, 25)
+
+    def _apple(aid):
+        return Account(name="Apple Cash", latest_balance=Decimal("0"), as_of=as_of,
+                       account_id=aid, include_in_net_worth=True, snapshot_date=as_of)
+
+    # a real I-6 distortion ($90k frozen feed) plus the inert $0 Apple Cash pair
+    frozen = Account(name="Frozen 401k", latest_balance=Decimal("90000"), as_of=as_of,
+                     account_id="acct-401k", include_in_net_worth=True,
+                     has_credential=True, credential_disconnected=True,
+                     last_updated=datetime.datetime(2026, 9, 25, tzinfo=datetime.timezone.utc))
+    ctx = IntegrityContext(as_of=as_of, policy=steward.policy(), source="live",
+                           accounts=[frozen, _apple("apple-a"), _apple("apple-b")])
+    res = steward.check_with_context(ctx)
+    assert res["trust"] == "degraded"
+    assert res["items"][0]["detector"] != "I-9"  # the $0 I-9 never leads

@@ -105,10 +105,28 @@ class Steward:
         surfaced = result["surfaced"]
         needs_input = [f for f in surfaced if f.get("confidence") == "needs_input"]
         items = [f for f in surfaced if f.get("confidence") != "needs_input"]
-        # high-confidence first, then largest dollars — integrity leads the brief
-        items.sort(key=lambda f: (0 if f["confidence"] == "high" else 1, -f["dollars_at_stake"]))
+
+        # #8 dollars-aware gate: a finding whose dollar amount IS the measure of the
+        # distortion (I-9 double-count / hidden balance) distorts nothing at $0.00,
+        # so it must not flip trust or lead the brief. The gate is OPT-IN via the
+        # dollars_are_the_distortion flag — findings where dollars is a placeholder
+        # and the harm is categorical ($0 I-1/I-2/I-6/I-7) never carry it, so they
+        # keep degrading trust. Immaterial findings stay in `items` (visible in
+        # integrity_check and findings_list); only their trust/ranking weight drops.
+        # Fail-safe: an absent flag (pre-#8 ledger row) reads False → still degrades.
+        def _immaterial(f: dict) -> bool:
+            return bool(f.get("dollars_are_the_distortion")) and f["dollars_at_stake"] == 0.0
+
+        # high-confidence first, then material-before-immaterial, then largest dollars
+        items.sort(key=lambda f: (
+            0 if f["confidence"] == "high" else 1,
+            1 if _immaterial(f) else 0,
+            -f["dollars_at_stake"],
+        ))
         needs_input.sort(key=lambda f: -f["dollars_at_stake"])
-        trust = "degraded" if any(f["confidence"] == "high" for f in items) else "ok"
+        trust = "degraded" if any(
+            f["confidence"] == "high" and not _immaterial(f) for f in items
+        ) else "ok"
         shown_needs_input = needs_input[:1]  # spec §5.4: at most one per run
         return {
             "trust": trust,
@@ -121,11 +139,13 @@ class Steward:
             "backlog_count": len(result["backlog"]),
             "auto_resolved": [f["id"] for f in result["auto_resolved"]],
             "methodology": (
-                "Integrity detectors I-1..I-8 over the live cache, reconciled into "
+                "Integrity detectors I-1..I-9 over the live cache, reconciled into "
                 "findings.db; items ranked integrity-first (high confidence, then "
                 "dollars). At most one needs_input question shows per run; "
                 "needs_input_pending is how many more wait in the ledger. trust is "
-                "'degraded' whenever any high integrity finding surfaces — numbers "
-                "elsewhere are then unverified."
+                "'degraded' whenever any high integrity finding surfaces — except a "
+                "finding whose dollar amount IS the distortion (a duplicate holding) "
+                "at exactly $0.00, which is materially inert and stays visible without "
+                "degrading trust. When degraded, numbers elsewhere are unverified."
             ),
         }
