@@ -1281,10 +1281,10 @@ def build_server(
         levers, trajectory, watchlist, narrative) plus which goals are still unfilled.
         Read this at the START of any planning or steward conversation to re-ground
         in the plan before reasoning against live data."""
-        return _guard(lambda: {
-            "plan": plan_mod.load_plan().raw,
-            "validation": plan_mod.load_plan().validate(),
-        })
+        def _run():
+            p = plan_mod.load_plan()
+            return {"plan": p.raw, "validation": p.validate()}
+        return _guard(_run)
 
     if steward is not None:
         _register_steward_tools(server, steward, _guard)
