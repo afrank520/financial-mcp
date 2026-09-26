@@ -2548,12 +2548,6 @@ def test_plan_get_returns_plan_and_validation(tmp_path, monkeypatch):
     assert out["validation"]["valid"] is False   # seed goals unfilled
 
 
-_KNOWN_PLAN_KEYS = {
-    "version", "north_star", "baseline", "goals", "guardrails",
-    "levers", "trajectory", "watchlist", "narrative",
-}
-
-
 def test_plan_update_dry_run_writes_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
     server = build_server(_service(tmp_path))
@@ -2596,6 +2590,7 @@ def test_plan_update_rejects_non_dict(tmp_path, monkeypatch):
     server = build_server(_service(tmp_path))
     out = _tool(server, "plan_update")(plan=["not", "a", "dict"])
     assert "error" in out
+    assert not (tmp_path / "plan.yaml").exists()
 
 
 def test_plan_update_works_with_write_mode_off(tmp_path, monkeypatch):
@@ -2605,3 +2600,15 @@ def test_plan_update_works_with_write_mode_off(tmp_path, monkeypatch):
     doc = {"version": 1, "north_star": "ungated", "goals": []}
     token = _tool(server, "plan_update")(plan=doc)["confirm_token"]
     assert _tool(server, "plan_update")(plan=doc, confirm_token=token)["saved"] is True
+
+
+def test_plan_update_token_does_not_transfer_across_plans(tmp_path, monkeypatch):
+    # A confirm_token minted for plan A must NOT authorize saving a different plan B.
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    doc_a = {"version": 1, "north_star": "plan A", "goals": []}
+    doc_b = {"version": 1, "north_star": "plan B", "goals": []}
+    token_a = _tool(server, "plan_update")(plan=doc_a)["confirm_token"]
+    out = _tool(server, "plan_update")(plan=doc_b, confirm_token=token_a)
+    assert out["dry_run"] is True                       # token A cannot commit plan B
+    assert not (tmp_path / "plan.yaml").exists()        # nothing written
