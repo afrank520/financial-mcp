@@ -59,3 +59,33 @@ def test_malformed_yaml_raises_not_returns_empty(tmp_path, monkeypatch):
     (tmp_path / "plan.yaml").write_text("version: 1\n  bad: : :\n")
     with pytest.raises(Exception):
         plan_mod.load_plan()
+
+
+def test_plan_token_stable_and_order_independent():
+    a = plan_mod.plan_token({"north_star": "x", "goals": []})
+    b = plan_mod.plan_token({"goals": [], "north_star": "x"})   # key order differs
+    assert a == b and len(a) == 40
+    assert a != plan_mod.plan_token({"north_star": "y", "goals": []})
+
+
+def test_save_plan_writes_atomically_and_reads_back(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    plan_mod.save_plan({"version": 1, "north_star": "saved"})
+    assert plan_mod.load_plan().north_star == "saved"
+
+
+def test_save_plan_keeps_one_prior_version_and_restores(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    plan_mod.save_plan({"version": 1, "north_star": "first"})
+    plan_mod.save_plan({"version": 1, "north_star": "second"})
+    assert plan_mod.load_plan().north_star == "second"
+    assert plan_mod.has_backup() is True
+
+    assert plan_mod.restore_backup() is True
+    assert plan_mod.load_plan().north_star == "first"   # rolled back one level
+
+
+def test_restore_backup_false_when_none(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    plan_mod.save_plan({"version": 1, "north_star": "only"})
+    assert plan_mod.restore_backup() is False   # nothing backed up yet

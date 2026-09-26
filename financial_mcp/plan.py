@@ -7,6 +7,8 @@ The plan holds targets/intent only — actuals always come live from Monarch too
 """
 from __future__ import annotations
 
+import hashlib
+import os
 from pathlib import Path
 
 import yaml
@@ -73,3 +75,40 @@ def load_plan() -> Plan:
         config.ensure_parent(str(path))
         path.write_text(_seed_text())
     return Plan(yaml.safe_load(path.read_text()) or {})
+
+
+def _backup_path() -> str:
+    return config.resolve_user_path("plan.yaml.bak")
+
+
+def plan_token(raw: dict) -> str:
+    """Stable content hash: sha1 of canonical (sorted-key) YAML."""
+    canonical = yaml.safe_dump(raw, sort_keys=True, default_flow_style=False)
+    return hashlib.sha1(canonical.encode()).hexdigest()
+
+
+def save_plan(raw: dict) -> None:
+    """Write plan.yaml atomically, copying the current file to a single backup
+    slot first so plan_undo can restore exactly one level."""
+    path = Path(_plan_path())
+    config.ensure_parent(str(path))
+    if path.exists():
+        Path(_backup_path()).write_text(path.read_text())
+    tmp = path.with_suffix(".yaml.tmp")
+    tmp.write_text(yaml.safe_dump(raw, sort_keys=False, default_flow_style=False))
+    os.replace(tmp, path)   # atomic
+
+
+def has_backup() -> bool:
+    return Path(_backup_path()).exists()
+
+
+def restore_backup() -> bool:
+    """Swap the backup back into place. Returns False if there is no backup."""
+    bak = Path(_backup_path())
+    if not bak.exists():
+        return False
+    path = Path(_plan_path())
+    path.write_text(bak.read_text())
+    bak.unlink()
+    return True
