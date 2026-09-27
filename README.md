@@ -48,6 +48,18 @@ organize your data, with a real safety model behind every change:
 - Create, update, and delete transaction rules (merchant renames and
   auto-categorization on future imports)
 
+**Keep a plan — in your own words.** Your financial plan (north star, goals,
+guardrails, levers, and a dated trajectory) gets a durable home on your Mac
+that Claude reads back every session, so it survives the chat and travels to
+any client:
+
+- Author and revise the plan entirely through conversation — never by hand-
+  editing a file — behind the same dry-run → confirm → undo safety flow
+- The plan holds your *intent* (targets and rules); actuals always come live
+  from Monarch, so advice reasons against both
+- Independent of the write gate: the plan is your own local note to self, not
+  a change to your Monarch records
+
 ## The safety model
 
 Writing to real financial records is treated as a first-class risk, not an
@@ -88,12 +100,15 @@ Python version, config paths, secure connection to Monarch, and saved session.
 
 ## Roadmap
 
-v1 is the "maintenance" layer above. Planned next, as a separate advisory layer
-built on top of it:
+On top of the "maintenance" layer above, an advisory layer is taking shape. Its
+first piece has landed: the **plan store** described above is the home for the
+parts of your financial picture that don't live in Monarch (north star, goals,
+guardrails, levers, targets), so advice can reason against your actual goals.
 
-- A `financial_context` resource — a home for the parts of your financial
-  picture that don't live in Monarch (house rules, levers, targets) so advice
-  can reason against your actual goals
+Planned next, building on it:
+
+- Adherence tools that measure behavior against the plan — how the trajectory is
+  tracking, where spending is diverging from the goals
 - Goal and budget *editing* (v1 reads budgets but does not write them)
 - Longer-horizon planning tools (e.g. debt glide-paths)
 
