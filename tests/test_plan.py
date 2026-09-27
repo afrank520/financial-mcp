@@ -5,9 +5,16 @@ typed accessors, and validate() reporting unfilled goals.
 """
 from __future__ import annotations
 
+import stat
+import sys
+
 import pytest
 
 from financial_mcp import plan as plan_mod
+
+
+def _mode(path):
+    return stat.S_IMODE(path.stat().st_mode)
 
 
 def test_load_seeds_file_on_first_run_then_reads_it(tmp_path, monkeypatch):
@@ -89,3 +96,29 @@ def test_restore_backup_false_when_none(tmp_path, monkeypatch):
     monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
     plan_mod.save_plan({"version": 1, "north_star": "only"})
     assert plan_mod.restore_backup() is False   # nothing backed up yet
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes only")
+def test_plan_and_backup_files_are_owner_only_0600(tmp_path, monkeypatch):
+    """The plan holds real income/balances, so every write path (seed on load,
+    save, the backup copy, and restore) must leave the file at 0600 — matching
+    the credential store, not the world-readable 0644 a plain write_text gives."""
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    plan = tmp_path / "plan.yaml"
+    bak = tmp_path / "plan.yaml.bak"
+
+    # 1. seeded-on-load file is locked
+    plan_mod.load_plan()
+    assert _mode(plan) == 0o600
+
+    # 2. save + its backup copy are both locked
+    plan_mod.save_plan({"version": 1, "north_star": "second"})
+    assert _mode(plan) == 0o600
+    assert _mode(bak) == 0o600
+
+    # 3. even if the live file drifts loose, a restore re-locks it
+    plan.chmod(0o644)
+    plan_mod.save_plan({"version": 1, "north_star": "third"})  # remakes .bak
+    plan.chmod(0o644)
+    assert plan_mod.restore_backup() is True
+    assert _mode(plan) == 0o600
