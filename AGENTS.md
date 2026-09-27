@@ -7,7 +7,7 @@ the user's own Mac; nothing is hosted.
 ## If the user asks you to set this up
 
 Run the installer and follow its prompts — it does everything (virtualenv,
-install, sign-in browser, config, and connecting Codex Desktop):
+install, sign-in browser, config, and wiring the server into Codex):
 
 ```bash
 ./install.sh
@@ -25,8 +25,8 @@ login.
 
 Key facts to get right if you ever do it by hand:
 - Always work in `.venv` (`python3 -m venv .venv`). The `financial-mcp` command
-  lands at `.venv/bin/financial-mcp` — that **absolute path** is what Codex
-  Desktop's config `command` must point to (a bare `financial-mcp` won't resolve).
+  lands at `.venv/bin/financial-mcp` — that **absolute path** is what Codex's
+  MCP config `command` must point to (a bare `financial-mcp` won't resolve).
 - Run `python3 -m playwright install chromium` — the browser sign-in needs it.
 - Set `source: live` in `config.yaml`. Leave `write_mode: "off"` (read-only)
   unless the user explicitly wants writes.
