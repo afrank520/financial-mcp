@@ -2537,3 +2537,139 @@ def test_reauthenticate_tool_degraded_when_confirming_read_fails(tmp_path):
     assert out.get("status") == "degraded"
     assert out.get("source") == "live"  # adapter WAS swapped in
     assert "error" in out
+
+
+def test_plan_get_returns_plan_and_validation(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))   # no steward, write_mode off
+    out = _tool(server, "plan_get")()
+    assert "plan" in out and "validation" in out
+    assert out["plan"]["north_star"].startswith("Pay down")
+    assert out["validation"]["valid"] is False   # seed goals unfilled
+
+
+def test_plan_update_dry_run_writes_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    doc = {"version": 1, "north_star": "new plan", "goals": []}
+    out = _tool(server, "plan_update")(plan=doc)
+    assert out["dry_run"] is True and "confirm_token" in out
+    # file not created by a dry run
+    assert not (tmp_path / "plan.yaml").exists()
+
+
+def test_plan_update_commits_with_matching_token(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    doc = {"version": 1, "north_star": "committed", "goals": []}
+    token = _tool(server, "plan_update")(plan=doc)["confirm_token"]
+    out = _tool(server, "plan_update")(plan=doc, confirm_token=token)
+    assert out["saved"] is True
+    assert _tool(server, "plan_get")()["plan"]["north_star"] == "committed"
+
+
+def test_plan_update_wrong_token_stays_dry_run(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    doc = {"version": 1, "north_star": "x", "goals": []}
+    out = _tool(server, "plan_update")(plan=doc, confirm_token="bogus")
+    assert out["dry_run"] is True
+    assert not (tmp_path / "plan.yaml").exists()
+
+
+def test_plan_update_rejects_unknown_key(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    out = _tool(server, "plan_update")(plan={"north_star": "x", "typoo": 1})
+    assert "error" in out
+    assert not (tmp_path / "plan.yaml").exists()
+
+
+def test_plan_update_rejects_non_dict(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    out = _tool(server, "plan_update")(plan=["not", "a", "dict"])
+    assert "error" in out
+    assert not (tmp_path / "plan.yaml").exists()
+
+
+def test_plan_update_rejects_wrong_typed_section(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    out = _tool(server, "plan_update")(plan={"version": 1, "goals": "not a list"})
+    assert "error" in out
+    assert not (tmp_path / "plan.yaml").exists()
+
+
+def test_plan_update_rejects_str_where_list_expected(tmp_path, monkeypatch):
+    # north_star is a str section — sending a list for it must be rejected too,
+    # proving the type check isn't just list-shaped and covers other sections.
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    out = _tool(server, "plan_update")(plan={"north_star": ["not", "a", "string"]})
+    assert "error" in out
+    assert not (tmp_path / "plan.yaml").exists()
+
+
+def test_plan_update_rejects_non_dict_baseline(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    out = _tool(server, "plan_update")(plan={"baseline": "not a mapping"})
+    assert "error" in out
+    assert not (tmp_path / "plan.yaml").exists()
+
+
+def test_plan_update_accepts_valid_partial_plan(tmp_path, monkeypatch):
+    # A partial plan with correctly-typed sections must NOT be over-rejected —
+    # every section is optional, so this should reach the normal dry-run path.
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    out = _tool(server, "plan_update")(plan={"north_star": "x", "goals": []})
+    assert out["dry_run"] is True
+    assert "error" not in out
+    assert not (tmp_path / "plan.yaml").exists()
+
+
+def test_plan_update_works_with_write_mode_off(tmp_path, monkeypatch):
+    # proves plan_update is NOT gated by write_mode (default is "off")
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path), write_mode="off")
+    doc = {"version": 1, "north_star": "ungated", "goals": []}
+    token = _tool(server, "plan_update")(plan=doc)["confirm_token"]
+    assert _tool(server, "plan_update")(plan=doc, confirm_token=token)["saved"] is True
+
+
+def test_plan_update_token_does_not_transfer_across_plans(tmp_path, monkeypatch):
+    # A confirm_token minted for plan A must NOT authorize saving a different plan B.
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    doc_a = {"version": 1, "north_star": "plan A", "goals": []}
+    doc_b = {"version": 1, "north_star": "plan B", "goals": []}
+    token_a = _tool(server, "plan_update")(plan=doc_a)["confirm_token"]
+    out = _tool(server, "plan_update")(plan=doc_b, confirm_token=token_a)
+    assert out["dry_run"] is True                       # token A cannot commit plan B
+    assert not (tmp_path / "plan.yaml").exists()        # nothing written
+
+
+def test_plan_undo_restores_previous_plan(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    up = _tool(server, "plan_update")
+    for text in ("first", "second"):
+        doc = {"version": 1, "north_star": text, "goals": []}
+        up(plan=doc, confirm_token=up(plan=doc)["confirm_token"])
+    assert _tool(server, "plan_get")()["plan"]["north_star"] == "second"
+
+    out = _tool(server, "plan_undo")()
+    assert out["restored"] is True
+    assert _tool(server, "plan_get")()["plan"]["north_star"] == "first"
+
+
+def test_plan_undo_nothing_to_undo(tmp_path, monkeypatch):
+    monkeypatch.setattr("financial_mcp.config.USER_DIR", tmp_path)
+    server = build_server(_service(tmp_path))
+    doc = {"version": 1, "north_star": "only", "goals": []}
+    up = _tool(server, "plan_update")
+    up(plan=doc, confirm_token=up(plan=doc)["confirm_token"])   # first save, no backup yet
+    out = _tool(server, "plan_undo")()
+    assert out["restored"] is False

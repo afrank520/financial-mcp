@@ -1,0 +1,38 @@
+version: 1
+north_star: "Pay down as much HELOC as possible without drawing more."
+baseline:
+  steady_monthly_income: null      # fill via conversation (plan_update)
+  steady_monthly_expense: null
+  steady_monthly_margin: null      # income - expense
+goals:
+  - id: heloc-paydown
+    metric: heloc_balance
+    tracks: "HELOC account"
+    target: null                   # e.g. a dollar balance to reach
+    target_date: null              # e.g. 2027-06
+  - id: checking-floor
+    metric: checking_balance
+    tracks: "primary checking"
+    target: null                   # the floor to stay above
+    target_date: null
+guardrails:
+  - "Checking below floor = pause and look together."   # policy.yaml holds the live threshold
+  - "Every HELOC draw must be named."                   # policy.yaml: debt.heloc.draws_must_be_named is source of truth
+  - "Any surprise over the large-expense tripwire is a decision, not autopilot."
+levers:
+  - name: "W-4 calibration"
+    effect: "adjust withholding to change take-home margin"
+  - name: "retirement contribution pauses"
+    effect: "401k/403b/529 pauses free monthly cashflow"
+  - name: "HELOC refi + limit increase"
+    effect: "restructures the debt and headroom"
+  - name: "credit-card payment cadence"
+    effect: "timing sweeps to smooth cashflow"
+trajectory:
+  # dated checkpoints the metric is expected to hit — the glide-path.
+  - date: null                     # e.g. 2026-10
+    metric: heloc_balance
+    expected: null                 # e.g. expected balance that month
+narrative: >
+  Transactions are noise; checkpoints are signal. Every dollar off-glide is named.
+  (Replace this with the plan's real framing via conversation.)

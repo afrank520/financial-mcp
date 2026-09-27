@@ -5,6 +5,16 @@ to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- **Plan store (`plan.yaml`).** The financial plan now has a durable home the
+  MCP persists on your Mac and reads back every session, so it survives the chat
+  and travels to any client. `plan_get` returns the plan (north_star, baseline,
+  goals, guardrails, levers, trajectory, watchlist, narrative) plus which goals
+  are still unfilled; `plan_update` creates or replaces it entirely through
+  conversation (dry-run → confirm, one-level undo via `plan_undo`) — you never
+  edit a file by hand. Independent of `write_mode`: the plan is your own local
+  intent, not a change to your Monarch records.
+
 ### Changed
 - **Dollars-aware trust gate.** A duplicate-holding finding (I-9) whose
   double-counted amount is exactly $0.00 no longer flips `trust` to *degraded*
@@ -17,9 +27,10 @@ to [Semantic Versioning](https://semver.org).
   degrading trust as before. (A $0 duplicate stays surfaced every run rather
   than aging to backlog; dismiss-with-reason if you want it held.)
 
-Next up: the advisory layer that builds on the trustworthy-data foundation
-below — a `financial_context` store for goals/rules/targets, and the planning
-tools that measure behavior against them. **More is on the way.**
+The plan store above is the first piece of the advisory layer that builds on
+the trustworthy-data foundation below. Next up: the tools that measure behavior
+against the plan — adherence to the trajectory, divergence from the goals.
+**More is on the way.**
 
 ## [1.2.0] — 2026-09-25
 

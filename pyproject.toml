@@ -38,7 +38,7 @@ include = ["financial_mcp*"]
 [tool.setuptools.package-data]
 # ship the steward policy seed (Appendix A) inside the wheel so first-run
 # bootstrap works in the Docker/self-host image, not just the editable dev tree.
-financial_mcp = ["steward/*.yaml"]
+financial_mcp = ["steward/*.yaml", "*.yaml"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

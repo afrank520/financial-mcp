@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from mcp.server.fastmcp import FastMCP
 
-from financial_mcp import writes
+from financial_mcp import plan as plan_mod, writes
 from financial_mcp.analytics import balances, budgets, holdings, networth, recurring, savings, spending
 from financial_mcp.data_service import DataService
 from financial_mcp.monarch.community_adapter import CloudflareBlockedError, SessionExpiredError
@@ -1274,6 +1274,84 @@ def build_server(
         count, when, and whether it has already been undone.
         """
         return _guard(lambda: {"history": journal.history()})
+
+    @server.tool()
+    def plan_get() -> dict:
+        """Return the full financial plan (north_star, baseline, goals, guardrails,
+        levers, trajectory, watchlist, narrative) plus which goals are still unfilled.
+        Read this at the START of any planning or steward conversation to re-ground
+        in the plan before reasoning against live data."""
+        def _run():
+            p = plan_mod.load_plan()
+            return {"plan": p.raw, "validation": p.validate()}
+        return _guard(_run)
+
+    _PLAN_KEYS = {
+        "version", "north_star", "baseline", "goals", "guardrails",
+        "levers", "trajectory", "watchlist", "narrative",
+    }
+
+    # Per-section expected types (spec §7.2 step 1). "version" is deliberately
+    # unconstrained (int/str both fine). Only sections that are PRESENT are
+    # checked — every section is optional, so a partial plan is allowed.
+    _PLAN_SECTION_TYPES: dict[str, type] = {
+        "north_star": str,
+        "narrative": str,
+        "baseline": dict,
+        "goals": list,
+        "guardrails": list,
+        "levers": list,
+        "trajectory": list,
+        "watchlist": list,
+    }
+
+    @server.tool()
+    def plan_update(plan: dict, confirm_token: str | None = None) -> dict:
+        """Create or replace the financial plan. Full-replace: send the ENTIRE plan
+        document (after plan_get you already hold the current one, so editing =
+        re-send the whole doc with your change). Two-phase: call without confirm_token
+        to preview (writes NOTHING, returns the proposed plan + a confirm_token); call
+        again with the matching token to write. Reversible via plan_undo (restores the
+        previous version). Not gated by write_mode — the plan is your own local intent,
+        not a change to your Monarch records."""
+
+        def _run():
+            if not isinstance(plan, dict):
+                return {"error": "plan must be a mapping of the plan sections"}
+            unknown = set(plan) - _PLAN_KEYS
+            if unknown:
+                return {"error": f"unknown plan section(s): {sorted(unknown)}. "
+                        f"Allowed: {sorted(_PLAN_KEYS)}"}
+            for key, expected in _PLAN_SECTION_TYPES.items():
+                if key in plan and not isinstance(plan[key], expected):
+                    return {"error": f"section '{key}' must be a "
+                            f"{expected.__name__}, got {type(plan[key]).__name__}"}
+            token = plan_mod.plan_token(plan)
+            if confirm_token is None or confirm_token != token:
+                return {
+                    "dry_run": True,
+                    "plan": plan,
+                    "confirm_token": token,
+                    "note": "nothing written yet — call again with confirm_token to save",
+                }
+            plan_mod.save_plan(plan)
+            return {"saved": True,
+                    "undo_hint": "call plan_undo to restore the previous plan"}
+
+        return _guard(_run)
+
+    @server.tool()
+    def plan_undo() -> dict:
+        """Restore the previous version of the plan (one level of undo). Reverses the
+        most recent plan_update. Returns restored: False if there is no prior version."""
+
+        def _run():
+            if plan_mod.restore_backup():
+                return {"restored": True,
+                        "message": "restored the previous plan"}
+            return {"restored": False, "message": "nothing to undo"}
+
+        return _guard(_run)
 
     if steward is not None:
         _register_steward_tools(server, steward, _guard)
