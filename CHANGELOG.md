@@ -5,6 +5,10 @@ to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-09-27
+
+The advisory layer's first piece: your financial plan gets a durable home.
+
 ### Added
 - **Plan store (`plan.yaml`).** The financial plan now has a durable home the
   MCP persists on your Mac and reads back every session, so it survives the chat
