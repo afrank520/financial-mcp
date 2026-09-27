@@ -73,7 +73,7 @@ def load_plan() -> Plan:
     path = Path(_plan_path())
     if not path.exists():
         config.ensure_parent(str(path))
-        path.write_text(_seed_text())
+        _write_locked(path, _seed_text())
     return Plan(yaml.safe_load(path.read_text()) or {})
 
 
@@ -87,16 +87,34 @@ def plan_token(raw: dict) -> str:
     return hashlib.sha1(canonical.encode()).hexdigest()
 
 
+def _write_locked(path: Path, text: str) -> None:
+    """Atomically write `text` to `path` at mode 0600 (owner-only). The plan
+    holds real income/balances, so it gets the same permission posture as the
+    credential store: temp file opened 0600, chmod'd, then os.replace'd in."""
+    tmp = path.with_suffix(".yaml.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)   # atomic
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def save_plan(raw: dict) -> None:
-    """Write plan.yaml atomically, copying the current file to a single backup
-    slot first so plan_undo can restore exactly one level."""
+    """Write plan.yaml atomically (0600), copying the current file to a single
+    backup slot first so plan_undo can restore exactly one level."""
     path = Path(_plan_path())
     config.ensure_parent(str(path))
     if path.exists():
-        Path(_backup_path()).write_text(path.read_text())
-    tmp = path.with_suffix(".yaml.tmp")
-    tmp.write_text(yaml.safe_dump(raw, sort_keys=False, default_flow_style=False))
-    os.replace(tmp, path)   # atomic
+        bak = Path(_backup_path())
+        _write_locked(bak, path.read_text())
+    _write_locked(path, yaml.safe_dump(raw, sort_keys=False, default_flow_style=False))
 
 
 def has_backup() -> bool:
@@ -109,8 +127,6 @@ def restore_backup() -> bool:
     if not bak.exists():
         return False
     path = Path(_plan_path())
-    tmp = path.with_suffix(".yaml.tmp")
-    tmp.write_text(bak.read_text())
-    os.replace(tmp, path)   # atomic
+    _write_locked(path, bak.read_text())
     bak.unlink()
     return True
