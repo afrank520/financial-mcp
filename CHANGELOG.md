@@ -27,6 +27,13 @@ to [Semantic Versioning](https://semver.org).
   degrading trust as before. (A $0 duplicate stays surfaced every run rather
   than aging to backlog; dismiss-with-reason if you want it held.)
 
+### Security
+- **Plan file locked to owner-only (`600`).** `plan.yaml` (and its one-slot
+  backup) holds real income, expenses, and balances, so it is now written with
+  the same permission posture as the saved session — every write path (first
+  seed, save, backup, undo) leaves it readable only by your user account,
+  instead of the world-readable default a plain file write produced.
+
 The plan store above is the first piece of the advisory layer that builds on
 the trustworthy-data foundation below. Next up: the tools that measure behavior
 against the plan — adherence to the trajectory, divergence from the goals.
