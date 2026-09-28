@@ -171,6 +171,8 @@ class UndoJournal:
                 summary = f"Rule: contains '{old_n}' → category '{new_n}' ×{n}"
             elif op_type == "update_rule":
                 summary = f"Rule edit: {old_n} → {new_n} ×{n}"
+            elif op_type == "set_budget":
+                summary = f"Budget: {old_n} → {new_n} ×{n}"
             else:
                 summary = f"{old_n}→{new_n} ×{n}"
             out.append({

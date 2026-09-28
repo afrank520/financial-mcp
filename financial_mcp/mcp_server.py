@@ -1291,12 +1291,14 @@ def build_server(
     @server.tool()
     def undo_last() -> dict:
         """Reverse the most recent recategorization, category-rename, category-delete,
-        merchant-rename, created auto-categorize rule, created merchant-rename rule, or
-        rule edit batch (multi-level: call again to step back to the previous one). Undo
-        is a compensating write — it re-sets each item to the value it had when the
-        write ran; deletions are reversed by recreating the category; created rules are
-        reversed by deleting the rule; rule edits are reversed by re-applying the old
-        values. Does not detect edits you made afterward. Refuses in write_mode 'off'.
+        merchant-rename, created auto-categorize rule, created merchant-rename rule,
+        rule edit, or budget change batch (multi-level: call again to step back to
+        the previous one). Undo is a compensating write — it re-sets each item to the
+        value it had when the write ran; deletions are reversed by recreating the
+        category; created rules are reversed by deleting the rule; rule edits are
+        reversed by re-applying the old values; budget changes are reversed by
+        restoring the previous amount at the same scope. Does not detect edits you
+        made afterward. Refuses in write_mode 'off'.
         """
         disabled = _writes_enabled()
         if disabled:
@@ -1327,6 +1329,12 @@ def build_server(
                     ok = svc.update_transaction_rule(
                         r["target_id"], old["operator"], old["value"],
                         old["set_category_id"], old["set_merchant"])
+                elif r["op_type"] == "set_budget":
+                    old = json.loads(r["old_value"])
+                    old_amt = Decimal(old["amount"])
+                    saved = svc.update_budget_item(
+                        r["target_id"], old_amt, old["start_date"], old["apply_to_future"])
+                    ok = saved is not None and abs(saved - old_amt) <= Decimal("0.01")
                 else:
                     ok = False
                 if ok:
@@ -1351,6 +1359,9 @@ def build_server(
                     elif r["op_type"] == "update_rule":
                         failures.append({"rule_id": r["target_id"],
                                          "reason": "Monarch did not apply the compensating edit"})
+                    elif r["op_type"] == "set_budget":
+                        failures.append({"category_id": r["target_id"],
+                                         "reason": "Monarch did not restore the previous amount"})
                     else:
                         failures.append({"category_id": r["target_id"],
                                          "reason": "Monarch did not apply the rename"})
@@ -1370,9 +1381,10 @@ def build_server(
     @server.tool()
     def undo_history() -> dict:
         """Show the reversible recategorization, category-rename, category-delete,
-        merchant-rename, created-rule, and created auto-categorize-rule batches,
-        newest first: each with a summary (e.g. 'Uncategorized→Shopping ×12'),
-        count, when, and whether it has already been undone.
+        merchant-rename, created-rule, created auto-categorize-rule, rule-edit, and
+        budget-change batches, newest first: each with a summary (e.g.
+        'Uncategorized→Shopping ×12'), count, when, and whether it has already
+        been undone.
         """
         return _guard(lambda: {"history": journal.history()})
 

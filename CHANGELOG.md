@@ -5,6 +5,11 @@ to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- **Budget write** — a gated `set_budget` tool sets an existing category's monthly
+  budget behind the dry-run → confirm → undo safety flow, defaulting to this-month-only
+  and prompting for this-month-vs-ongoing scope.
+
 ## [1.3.0] — 2026-09-27
 
 The advisory layer's first piece: your financial plan gets a durable home.

@@ -2814,3 +2814,29 @@ def test_set_budget_defaults_to_current_month(tmp_path, monkeypatch):
     svc, _journal, server = _budget_server(tmp_path, write_mode="safe")
     out = _tool(server, "set_budget")("Groceries", 250)  # no month
     assert out["month"] == "2026-09"
+
+
+def test_undo_set_budget_restores_previous_amount_this_month(tmp_path):
+    svc, _journal, server = _budget_server(tmp_path, write_mode="full")
+    _tool(server, "set_budget")("Groceries", 250, month="2026-09")          # 200 -> 250
+    assert svc._adapter._saved["c1"] == Decimal("250.00")
+    out = _tool(server, "undo_last")()
+    assert out["reversed"] == 1 and out["failed"] == 0
+    # restored to the old amount at this-month scope
+    assert svc._adapter.budget_calls[-1] == ("c1", Decimal("200.00"), "2026-09-01", False)
+    assert svc._adapter._saved["c1"] == Decimal("200.00")
+
+
+def test_undo_set_budget_mirrors_all_future_scope(tmp_path):
+    svc, _journal, server = _budget_server(tmp_path, write_mode="full")
+    _tool(server, "set_budget")("Groceries", 250, month="2026-09", apply_to_future=True)
+    _tool(server, "undo_last")()
+    # the compensating write is also all-future
+    assert svc._adapter.budget_calls[-1] == ("c1", Decimal("200.00"), "2026-09-01", True)
+
+
+def test_undo_history_includes_set_budget_summary(tmp_path):
+    _svc, journal, server = _budget_server(tmp_path, write_mode="full")
+    _tool(server, "set_budget")("Groceries", 250, month="2026-09")
+    hist = _tool(server, "undo_history")()["history"]
+    assert any("Budget" in h["summary"] for h in hist)
