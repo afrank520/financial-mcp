@@ -392,3 +392,16 @@ UPDATE_TRANSACTION_RULE = """
     }
   }
 """
+
+UPDATE_BUDGET_ITEM = """
+mutation Common_UpdateBudgetItem($input: UpdateOrCreateBudgetItemMutationInput!) {
+  updateOrCreateBudgetItem(input: $input) {
+    budgetItem {
+      id
+      plannedCashFlowAmount
+      __typename
+    }
+    __typename
+  }
+}
+"""

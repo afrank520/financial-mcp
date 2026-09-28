@@ -182,6 +182,12 @@ class DataService:
         return self._adapter.update_transaction_rule(
             rule_id, operator, value, set_category_id, set_merchant)
 
+    def update_budget_item(self, category_id: str, amount, start_date: str,
+                           apply_to_future: bool):
+        # Budgets are never cached (see budgets()), so no cache to invalidate.
+        return self._adapter.update_budget_item(
+            category_id, amount, start_date, apply_to_future)
+
     def swap_adapter(self, adapter: MonarchAdapter) -> None:
         """Hot-swap the adapter this service reads through, in place.
 

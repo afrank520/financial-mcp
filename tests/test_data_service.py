@@ -110,6 +110,9 @@ class FakeAdapter(MonarchAdapter):
     def update_transaction_rule(self, rule_id, operator, value, set_category_id, set_merchant):
         return False
 
+    def update_budget_item(self, category_id, amount, start_date, apply_to_future):
+        return None
+
     def source_name(self):
         return "fake"
 
@@ -285,6 +288,8 @@ class _StubAdapter(MonarchAdapter):
         return False
     def update_transaction_rule(self, rule_id, operator, value, set_category_id, set_merchant):
         return False
+    def update_budget_item(self, category_id, amount, start_date, apply_to_future):
+        return None
 
 
 def test_balance_history_is_served_and_cached(tmp_path):
