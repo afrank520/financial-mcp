@@ -36,6 +36,7 @@ from financial_mcp.monarch.queries import (
     GET_RECURRING,
     GET_TRANSACTION_RULES,
     GET_TRANSACTIONS,
+    UPDATE_BUDGET_ITEM,
     UPDATE_CATEGORY,
     UPDATE_TRANSACTION_CATEGORY,
     UPDATE_TRANSACTION_MERCHANT,
@@ -595,3 +596,21 @@ class CommunityAdapter(MonarchAdapter):
                 and rule.get("value") == value
                 and (rule.get("set_category_id") or None) == (set_category_id or None)
                 and (rule.get("set_merchant") or None) == (set_merchant or None))
+
+    def update_budget_item(self, category_id, amount, start_date, apply_to_future) -> Decimal | None:
+        """Set the planned monthly budget for a category (create-or-update).
+        Returns the saved plannedCashFlowAmount (Decimal) on success, or None if
+        Monarch didn't apply it. Verify-by-response: the mutation echoes the
+        saved amount, so no re-read is needed."""
+        data = self._run(self._transport(
+            "Common_UpdateBudgetItem", UPDATE_BUDGET_ITEM,
+            {"input": {
+                "categoryId": category_id,
+                "startDate": start_date,
+                "timeframe": "month",
+                "amount": float(amount),
+                "applyToFuture": bool(apply_to_future),
+            }}))
+        item = ((data.get("updateOrCreateBudgetItem") or {}).get("budgetItem")) or {}
+        saved = item.get("plannedCashFlowAmount")
+        return None if saved is None else Decimal(str(saved))

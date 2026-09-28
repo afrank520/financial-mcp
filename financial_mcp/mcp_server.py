@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 import datetime
 import json
 import uuid
@@ -404,6 +405,115 @@ def build_server(
                     "set_category": target.name, "applied_to_existing": False,
                     "existing_matches": existing,
                     "undo_hint": "call undo_last to delete this rule"}
+
+        return _guard(_run)
+
+    @server.tool()
+    def set_budget(
+        category: str, amount: float, month: str | None = None,
+        apply_to_future: bool = False, confirm_token: str | None = None,
+    ) -> dict:
+        """Set or change the planned MONTHLY budget for a category.
+
+        Sets `category`'s planned amount for `month` (YYYY-MM or YYYY-MM-DD; default
+        = the current month) to `amount`. Works for a category that already has a
+        budget AND for one that isn't budgeted yet (currently $0) — in the latter case
+        the dry-run carries a `warning` so the user confirms adding a new budget on
+        purpose. Removing a budget is not supported. `apply_to_future` defaults to
+        False (this month only); pass True to also change all future months. IMPORTANT:
+        budget changes are often meant to be ongoing, so the dry-run returns a
+        `scope_prompt` — ask the user "just this month, or ongoing?" before confirming.
+        In 'safe' mode this is two-phase: call without confirm_token to preview (nothing
+        is written) and get a confirm_token, then call again with it to apply. In 'full'
+        mode it applies directly. Reversible via undo_last (restores the previous amount
+        at the same scope). All amounts are dollars.
+        """
+        disabled = _writes_enabled()
+        if disabled:
+            return {"error": disabled}
+
+        def _run():
+            try:
+                amt = writes.normalize_budget_amount(amount)
+            except writes.WriteError as exc:
+                return {"error": str(exc)}
+            if month is None:
+                first = datetime.date.today().replace(day=1)
+            else:
+                try:
+                    first = writes.parse_budget_month(month)
+                except writes.WriteError as exc:
+                    return {"error": str(exc)}
+            start_date = first.isoformat()          # YYYY-MM-01
+            month_label = first.strftime("%Y-%m")
+            last = first.replace(day=calendar.monthrange(first.year, first.month)[1])
+
+            cats = svc.categories()
+            try:
+                target = writes.resolve_category(category, cats)
+            except writes.WriteError as exc:
+                return {"error": str(exc)}
+
+            # Monarch reports an unbudgeted category as a $0 row, not an absent one
+            # (proven live 2026-09-28), so we can't tell "$0 budget" from "no budget"
+            # here. Treat a missing row the same as $0 and let the write through —
+            # updateOrCreateBudgetItem creates the budget when none exists — but when
+            # the current amount reads $0, warn the user so they confirm on purpose.
+            rows = svc.budgets(first, last)
+            current = next((r.budgeted for r in rows if r.category_id == target.id),
+                           Decimal("0"))
+
+            token = writes.compute_budget_token(target.id, start_date, amt, apply_to_future)
+            scope_prompt = (
+                (f"This will change only {month_label}." if not apply_to_future
+                 else f"This will change {month_label} and ALL FUTURE months.")
+                + " Budget changes are often meant to be ongoing — confirm whether to "
+                  "apply to this month only, or to this and all future months.")
+
+            if write_mode == "safe" and (confirm_token is None or confirm_token != token):
+                dry = {
+                    "dry_run": True,
+                    "category": target.name,
+                    "group": target.group,
+                    "month": month_label,
+                    "current_amount": float(current),
+                    "new_amount": float(amt),
+                    "apply_to_future": apply_to_future,
+                    "scope_prompt": scope_prompt,
+                    "confirm_token": token,
+                    "mode": write_mode,
+                    "note": "no budget change made yet",
+                }
+                if current == Decimal("0"):
+                    dry["warning"] = (
+                        f"{target.name!r} is not budgeted yet for {month_label} "
+                        f"(currently $0). Confirming will add a new budget of "
+                        f"${amt} for it — proceed only if that's intended.")
+                return dry
+
+            saved = svc.update_budget_item(target.id, amt, start_date, apply_to_future)
+            if saved is None or abs(saved - amt) > Decimal("0.01"):
+                return {"updated": False, "reason": "Monarch did not apply the change"}
+
+            batch_id = uuid.uuid4().hex
+            old_json = json.dumps({"amount": str(current), "start_date": start_date,
+                                   "apply_to_future": apply_to_future})
+            new_json = json.dumps({"amount": str(amt), "start_date": start_date,
+                                   "apply_to_future": apply_to_future})
+            label_old = f"{target.name} {month_label} ${current}"
+            label_new = f"{target.name} {month_label} ${amt}"
+            journal.record(batch_id, "set_budget", target.id, old_json, new_json,
+                           label_old, label_new)
+            journal.mark_succeeded(batch_id, target.id)
+            return {
+                "updated": True,
+                "category": target.name,
+                "month": month_label,
+                "old_amount": float(current),
+                "new_amount": float(saved),
+                "apply_to_future": apply_to_future,
+                "undo_hint": "call undo_last to restore the previous amount",
+            }
 
         return _guard(_run)
 
@@ -1190,12 +1300,14 @@ def build_server(
     @server.tool()
     def undo_last() -> dict:
         """Reverse the most recent recategorization, category-rename, category-delete,
-        merchant-rename, created auto-categorize rule, created merchant-rename rule, or
-        rule edit batch (multi-level: call again to step back to the previous one). Undo
-        is a compensating write — it re-sets each item to the value it had when the
-        write ran; deletions are reversed by recreating the category; created rules are
-        reversed by deleting the rule; rule edits are reversed by re-applying the old
-        values. Does not detect edits you made afterward. Refuses in write_mode 'off'.
+        merchant-rename, created auto-categorize rule, created merchant-rename rule,
+        rule edit, or budget change batch (multi-level: call again to step back to
+        the previous one). Undo is a compensating write — it re-sets each item to the
+        value it had when the write ran; deletions are reversed by recreating the
+        category; created rules are reversed by deleting the rule; rule edits are
+        reversed by re-applying the old values; budget changes are reversed by
+        restoring the previous amount at the same scope. Does not detect edits you
+        made afterward. Refuses in write_mode 'off'.
         """
         disabled = _writes_enabled()
         if disabled:
@@ -1226,6 +1338,12 @@ def build_server(
                     ok = svc.update_transaction_rule(
                         r["target_id"], old["operator"], old["value"],
                         old["set_category_id"], old["set_merchant"])
+                elif r["op_type"] == "set_budget":
+                    old = json.loads(r["old_value"])
+                    old_amt = Decimal(old["amount"])
+                    saved = svc.update_budget_item(
+                        r["target_id"], old_amt, old["start_date"], old["apply_to_future"])
+                    ok = saved is not None and abs(saved - old_amt) <= Decimal("0.01")
                 else:
                     ok = False
                 if ok:
@@ -1250,6 +1368,9 @@ def build_server(
                     elif r["op_type"] == "update_rule":
                         failures.append({"rule_id": r["target_id"],
                                          "reason": "Monarch did not apply the compensating edit"})
+                    elif r["op_type"] == "set_budget":
+                        failures.append({"category_id": r["target_id"],
+                                         "reason": "Monarch did not restore the previous amount"})
                     else:
                         failures.append({"category_id": r["target_id"],
                                          "reason": "Monarch did not apply the rename"})
@@ -1269,9 +1390,10 @@ def build_server(
     @server.tool()
     def undo_history() -> dict:
         """Show the reversible recategorization, category-rename, category-delete,
-        merchant-rename, created-rule, and created auto-categorize-rule batches,
-        newest first: each with a summary (e.g. 'Uncategorized→Shopping ×12'),
-        count, when, and whether it has already been undone.
+        merchant-rename, created-rule, created auto-categorize-rule, rule-edit, and
+        budget-change batches, newest first: each with a summary (e.g.
+        'Uncategorized→Shopping ×12'), count, when, and whether it has already
+        been undone.
         """
         return _guard(lambda: {"history": journal.history()})
 

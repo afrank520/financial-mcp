@@ -47,6 +47,7 @@ organize your data, with a real safety model behind every change:
 - Consolidate messy merchant names and rename merchants in bulk
 - Create, update, and delete transaction rules (merchant renames and
   auto-categorization on future imports)
+- Set the monthly budget for an existing category (this month or ongoing)
 
 **Keep a plan — in your own words.** Your financial plan (north star, goals,
 guardrails, levers, and a dated trajectory) gets a durable home on your Mac
@@ -109,7 +110,9 @@ Planned next, building on it:
 
 - Adherence tools that measure behavior against the plan — how the trajectory is
   tracking, where spending is diverging from the goals
-- Goal and budget *editing* (v1 reads budgets but does not write them)
+- Goal *editing* and budget *removal* (setting or changing a category's monthly
+  amount — including budgeting a category that wasn't budgeted yet — has landed;
+  removing a budget and editing goals are still planned)
 - Longer-horizon planning tools (e.g. debt glide-paths)
 
 > Any future advisory features are **not financial advice** — they're a way to

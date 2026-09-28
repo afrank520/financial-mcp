@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 from financial_mcp.config import ensure_parent
 
-REVERSIBLE_OPS = ("recategorize", "rename_category", "delete_category", "rename_merchant", "create_rule", "create_category_rule", "update_rule")
+REVERSIBLE_OPS = ("recategorize", "rename_category", "delete_category", "rename_merchant", "create_rule", "create_category_rule", "update_rule", "set_budget")
 
 
 class UndoJournal:
@@ -171,6 +171,8 @@ class UndoJournal:
                 summary = f"Rule: contains '{old_n}' → category '{new_n}' ×{n}"
             elif op_type == "update_rule":
                 summary = f"Rule edit: {old_n} → {new_n} ×{n}"
+            elif op_type == "set_budget":
+                summary = f"Budget: {old_n} → {new_n} ×{n}"
             else:
                 summary = f"{old_n}→{new_n} ×{n}"
             out.append({

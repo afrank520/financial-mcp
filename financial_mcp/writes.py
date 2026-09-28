@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import re
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from financial_mcp.analytics.spending import search
 from financial_mcp.monarch.models import Category, Transaction
@@ -229,6 +229,43 @@ def _category_rule_input(contains: str, category_id: str) -> dict:
 
 def compute_category_rule_token(contains: str, category_id: str) -> str:
     key = contains + "=>cat:" + category_id
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+
+def normalize_budget_amount(amount) -> Decimal:
+    """Coerce a caller-supplied amount to a cents-quantized Decimal. Fail-closed
+    on non-numeric, non-finite, and negative inputs (v1 budgets expense
+    categories, which are non-negative)."""
+    try:
+        value = Decimal(str(amount))
+    except (InvalidOperation, ValueError, TypeError):
+        raise WriteError(f"amount must be a valid number, got {amount!r}")
+    if value.is_nan() or value.is_infinite():
+        raise WriteError(f"amount must be a finite number, got {amount!r}")
+    value = value.quantize(Decimal("0.01"))
+    if value < 0:
+        raise WriteError("amount must be non-negative")
+    return value
+
+
+def parse_budget_month(value: str) -> datetime.date:
+    """Parse 'YYYY-MM' or 'YYYY-MM-DD' to the FIRST of that month. Fail-closed."""
+    text = (value or "").strip()
+    for fmt in ("%Y-%m", "%Y-%m-%d"):
+        try:
+            d = datetime.datetime.strptime(text, fmt).date()
+            return d.replace(day=1)
+        except ValueError:
+            continue
+    raise WriteError(f"month must be 'YYYY-MM' or 'YYYY-MM-DD', got {value!r}")
+
+
+def compute_budget_token(
+    category_id: str, start_date: str, amount, apply_to_future: bool
+) -> str:
+    """Content hash of the exact budget change (category+month+amount+scope), in a
+    namespace distinct from the other write tokens so it can't be cross-replayed."""
+    key = f"{category_id}#budget#{start_date}|{amount}|{int(bool(apply_to_future))}"
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
 
 
