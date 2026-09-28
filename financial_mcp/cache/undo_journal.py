@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 from financial_mcp.config import ensure_parent
 
-REVERSIBLE_OPS = ("recategorize", "rename_category", "delete_category", "rename_merchant", "create_rule", "create_category_rule", "update_rule")
+REVERSIBLE_OPS = ("recategorize", "rename_category", "delete_category", "rename_merchant", "create_rule", "create_category_rule", "update_rule", "set_budget")
 
 
 class UndoJournal:

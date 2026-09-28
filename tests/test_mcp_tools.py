@@ -134,6 +134,44 @@ class LiveAdapter(FakeAdapter):
         return "live"
 
 
+class _BudgetAdapter(LiveAdapter):
+    """Live-source adapter with one budgeted category (c1 'Groceries', $200) and a
+    recording update_budget_item. get_budgets returns c1 so set_budget sees an
+    existing budget; category c2 has no budget row (the 'unbudgeted' case)."""
+
+    def __init__(self):
+        self.budget_calls = []
+        self._saved = {}  # category_id -> Decimal currently saved
+
+    def get_categories(self):
+        from financial_mcp.monarch.models import Category
+        return [
+            Category(id="c1", name="Groceries", group="Food & Dining"),
+            Category(id="c2", name="Skiing", group="Fun"),
+        ]
+
+    def get_budgets(self, start, end):
+        from financial_mcp.monarch.models import BudgetItem
+        current = self._saved.get("c1", Decimal("200.00"))
+        return [BudgetItem(category_id="c1", budgeted=current,
+                           actual=Decimal("0"), remaining=current)]
+
+    def update_budget_item(self, category_id, amount, start_date, apply_to_future):
+        self.budget_calls.append((category_id, Decimal(str(amount)), start_date, apply_to_future))
+        saved = Decimal(str(amount))
+        self._saved[category_id] = saved
+        return saved  # echo back what was asked (happy path)
+
+
+def _budget_server(tmp_path, write_mode="safe"):
+    from financial_mcp.cache.undo_journal import UndoJournal
+    cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
+    svc = DataService(_BudgetAdapter(), cache)
+    journal = UndoJournal(str(tmp_path / "j.db"))
+    server = build_server(svc, write_mode=write_mode, batch_cap=200, journal=journal)
+    return svc, journal, server
+
+
 def test_health_check_ok_when_live_and_no_stale(tmp_path):
     # live source + empty (never-queried) cache -> nothing to distrust.
     cache = SqliteCache(str(tmp_path / "c.db"), CacheTTLs())
@@ -2679,3 +2717,100 @@ def test_plan_undo_nothing_to_undo(tmp_path, monkeypatch):
     up(plan=doc, confirm_token=up(plan=doc)["confirm_token"])   # first save, no backup yet
     out = _tool(server, "plan_undo")()
     assert out["restored"] is False
+
+
+def test_set_budget_disabled_when_write_mode_off(tmp_path):
+    _svc, _journal, server = _budget_server(tmp_path, write_mode="off")
+    out = _tool(server, "set_budget")("Groceries", 250, month="2026-09")
+    assert "error" in out and "disabled" in out["error"]
+
+
+def test_set_budget_unknown_category_refused(tmp_path):
+    _svc, _journal, server = _budget_server(tmp_path, write_mode="safe")
+    out = _tool(server, "set_budget")("Nope", 250, month="2026-09")
+    assert "error" in out and "Nope" in out["error"]
+
+
+def test_set_budget_unbudgeted_refused(tmp_path):
+    _svc, _journal, server = _budget_server(tmp_path, write_mode="safe")
+    out = _tool(server, "set_budget")("Skiing", 300, month="2026-09")
+    assert "error" in out and "coming later" in out["error"]
+
+
+def test_set_budget_negative_refused(tmp_path):
+    _svc, _journal, server = _budget_server(tmp_path, write_mode="safe")
+    out = _tool(server, "set_budget")("Groceries", -5, month="2026-09")
+    assert "error" in out and "non-negative" in out["error"]
+
+
+def test_set_budget_dry_run_returns_token_and_scope_prompt(tmp_path):
+    svc, _journal, server = _budget_server(tmp_path, write_mode="safe")
+    out = _tool(server, "set_budget")("Groceries", 250, month="2026-09")
+    assert out["dry_run"] is True
+    assert out["current_amount"] == 250.0 or out["current_amount"] == 200.0
+    assert out["current_amount"] == 200.0  # existing budget
+    assert out["new_amount"] == 250.0
+    assert out["apply_to_future"] is False
+    assert out["scope_prompt"] and "only" in out["scope_prompt"]
+    assert len(out["confirm_token"]) == 16
+    assert svc._adapter.budget_calls == []  # nothing written
+
+
+def test_set_budget_scope_prompt_names_ongoing_when_all_future(tmp_path):
+    _svc, _journal, server = _budget_server(tmp_path, write_mode="safe")
+    out = _tool(server, "set_budget")("Groceries", 250, month="2026-09", apply_to_future=True)
+    assert "FUTURE" in out["scope_prompt"]
+    # flipping scope changes the token vs this-month-only
+    other = _tool(server, "set_budget")("Groceries", 250, month="2026-09")
+    assert out["confirm_token"] != other["confirm_token"]
+
+
+def test_set_budget_wrong_token_stays_dry_run(tmp_path):
+    svc, _journal, server = _budget_server(tmp_path, write_mode="safe")
+    out = _tool(server, "set_budget")("Groceries", 250, month="2026-09", confirm_token="wrong")
+    assert out["dry_run"] is True
+    assert svc._adapter.budget_calls == []
+
+
+def test_set_budget_confirm_writes_and_records_undo(tmp_path):
+    svc, journal, server = _budget_server(tmp_path, write_mode="safe")
+    dry = _tool(server, "set_budget")("Groceries", 250, month="2026-09")
+    out = _tool(server, "set_budget")("Groceries", 250, month="2026-09",
+                                      confirm_token=dry["confirm_token"])
+    assert out["updated"] is True
+    assert out["old_amount"] == 200.0 and out["new_amount"] == 250.0
+    assert svc._adapter.budget_calls == [("c1", Decimal("250.00"), "2026-09-01", False)]
+    # an undoable batch was recorded for set_budget
+    batch = journal.last_undoable_batch()
+    assert batch is not None
+    rows = journal.undoable_rows(batch)
+    assert rows[0]["op_type"] == "set_budget" and rows[0]["target_id"] == "c1"
+
+
+def test_set_budget_full_mode_writes_without_token(tmp_path):
+    svc, _journal, server = _budget_server(tmp_path, write_mode="full")
+    out = _tool(server, "set_budget")("Groceries", 275, month="2026-09")
+    assert out["updated"] is True
+    assert svc._adapter.budget_calls == [("c1", Decimal("275.00"), "2026-09-01", False)]
+
+
+def test_set_budget_mismatch_no_undo_recorded(tmp_path):
+    svc, journal, server = _budget_server(tmp_path, write_mode="full")
+    # make Monarch echo a different amount than requested
+    svc._adapter.update_budget_item = lambda cid, amt, sd, af: Decimal("1.00")
+    out = _tool(server, "set_budget")("Groceries", 250, month="2026-09")
+    assert out["updated"] is False
+    assert journal.last_undoable_batch() is None
+
+
+def test_set_budget_defaults_to_current_month(tmp_path, monkeypatch):
+    import financial_mcp.mcp_server as ms
+    # pin "today" so the default month is deterministic
+    class _FixedDate(datetime.date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 9, 15)
+    monkeypatch.setattr(ms.datetime, "date", _FixedDate)
+    svc, _journal, server = _budget_server(tmp_path, write_mode="safe")
+    out = _tool(server, "set_budget")("Groceries", 250)  # no month
+    assert out["month"] == "2026-09"
