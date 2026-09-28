@@ -313,3 +313,38 @@ def test_rule_complexity_flags_missing_merchant_criterion_and_missing_action():
         {"value": None, "set_category_id": "cat7"})
     assert "no set-category or set-merchant action" in rule_complexity(
         {"value": "ubs", "set_category_id": None, "set_merchant": None})
+
+
+def test_normalize_budget_amount_quantizes_to_cents():
+    assert writes.normalize_budget_amount(250) == Decimal("250.00")
+    assert writes.normalize_budget_amount(19.9) == Decimal("19.90")
+    assert writes.normalize_budget_amount("12.005") == Decimal("12.00")  # rounds to cents
+
+
+def test_normalize_budget_amount_rejects_negative():
+    with pytest.raises(writes.WriteError) as exc:
+        writes.normalize_budget_amount(-5)
+    assert "non-negative" in str(exc.value)
+
+
+def test_parse_budget_month_accepts_year_month():
+    assert writes.parse_budget_month("2026-09") == datetime.date(2026, 9, 1)
+
+
+def test_parse_budget_month_accepts_full_date_and_normalizes_to_first():
+    assert writes.parse_budget_month("2026-09-17") == datetime.date(2026, 9, 1)
+
+
+def test_parse_budget_month_rejects_garbage():
+    with pytest.raises(writes.WriteError):
+        writes.parse_budget_month("September")
+
+
+def test_compute_budget_token_is_stable_and_scope_sensitive():
+    a = writes.compute_budget_token("c1", "2026-09-01", Decimal("250.00"), False)
+    b = writes.compute_budget_token("c1", "2026-09-01", Decimal("250.00"), False)
+    assert a == b and len(a) == 16
+    # flipping scope changes the token (anti-replay across scopes)
+    assert writes.compute_budget_token("c1", "2026-09-01", Decimal("250.00"), True) != a
+    # different amount changes the token
+    assert writes.compute_budget_token("c1", "2026-09-01", Decimal("300.00"), False) != a
