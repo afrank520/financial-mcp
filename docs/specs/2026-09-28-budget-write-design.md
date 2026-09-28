@@ -14,13 +14,22 @@ of the existing recategorize / rename / rule tools.
 
 It is the first concrete step toward letting the steward/advisory layer propose
 budget changes (e.g. "set a $300/mo ski budget") that the user approves and the
-MCP applies. v1 is deliberately the smallest safe backbone: **change an amount
-that already exists.**
+MCP applies. v1 is the smallest safe backbone: **set or change a category's
+monthly planned amount.**
+
+> **Revised 2026-09-28 (post-live-prove):** the original v1 planned to *refuse*
+> unbudgeted categories, keying on an absent budget row. Live evidence proved
+> Monarch's `GetJointPlanningData` returns `plannedCashFlowAmount=0.0` (a literal
+> float, not null / not an absent row) for an unbudgeted category, so the query
+> **cannot** distinguish "unbudgeted" from "budgeted at $0" — the refusal was
+> structurally undeliverable. Per owner direction, v1 now **allows** the write on
+> a $0/unbudgeted category (matching the origin intent "set a ski budget"), and
+> `updateOrCreateBudgetItem` creates the budget. When the current amount reads
+> $0 the dry-run carries a `warning` so the user confirms adding a new budget on
+> purpose — the confirm-token handshake is the "do you want to proceed?" gate.
 
 ## Non-Goals (deferred to later, separately-captured increments)
 
-- **Adding a budget to an unbudgeted category** (the "Show N unbudgeted" rows).
-  `$0` budget ≠ unbudgeted; that behavior is unvalidated. v1 **refuses** this.
 - **Removing a budget entirely.**
 - **Non-Monthly categories** (yearly "target amount" divided into a monthly
   figure; "Expense Frequency: Every 12 months").

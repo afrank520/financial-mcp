@@ -137,7 +137,9 @@ class LiveAdapter(FakeAdapter):
 class _BudgetAdapter(LiveAdapter):
     """Live-source adapter with one budgeted category (c1 'Groceries', $200) and a
     recording update_budget_item. get_budgets returns c1 so set_budget sees an
-    existing budget; category c2 has no budget row (the 'unbudgeted' case)."""
+    existing budget; category c2 ('Skiing') returns a $0 row — the 'unbudgeted'
+    case, which Monarch reports as plannedCashFlowAmount=0.0, NOT an absent row
+    (proven live 2026-09-28). set_budget must allow it with a warning."""
 
     def __init__(self):
         self.budget_calls = []
@@ -152,9 +154,12 @@ class _BudgetAdapter(LiveAdapter):
 
     def get_budgets(self, start, end):
         from financial_mcp.monarch.models import BudgetItem
-        current = self._saved.get("c1", Decimal("200.00"))
-        return [BudgetItem(category_id="c1", budgeted=current,
-                           actual=Decimal("0"), remaining=current)]
+        c1 = self._saved.get("c1", Decimal("200.00"))
+        c2 = self._saved.get("c2", Decimal("0.00"))  # unbudgeted → $0 row, mirrors live
+        return [
+            BudgetItem(category_id="c1", budgeted=c1, actual=Decimal("0"), remaining=c1),
+            BudgetItem(category_id="c2", budgeted=c2, actual=Decimal("0"), remaining=c2),
+        ]
 
     def update_budget_item(self, category_id, amount, start_date, apply_to_future):
         self.budget_calls.append((category_id, Decimal(str(amount)), start_date, apply_to_future))
@@ -2731,10 +2736,36 @@ def test_set_budget_unknown_category_refused(tmp_path):
     assert "error" in out and "Nope" in out["error"]
 
 
-def test_set_budget_unbudgeted_refused(tmp_path):
-    _svc, _journal, server = _budget_server(tmp_path, write_mode="safe")
+def test_set_budget_unbudgeted_dry_run_warns_but_allows(tmp_path):
+    # Skiing (c2) reads $0 = unbudgeted (Monarch reports 0.0, not an absent row).
+    # We allow the write but attach a warning so the user confirms intentionally.
+    svc, _journal, server = _budget_server(tmp_path, write_mode="safe")
     out = _tool(server, "set_budget")("Skiing", 300, month="2026-09")
-    assert "error" in out and "coming later" in out["error"]
+    assert "error" not in out
+    assert out["dry_run"] is True
+    assert out["current_amount"] == 0.0
+    assert out["new_amount"] == 300.0
+    assert out["warning"] and "not budgeted yet" in out["warning"]
+    assert len(out["confirm_token"]) == 16
+    assert svc._adapter.budget_calls == []  # still nothing written on dry-run
+
+
+def test_set_budget_unbudgeted_confirm_creates_budget(tmp_path):
+    svc, _journal, server = _budget_server(tmp_path, write_mode="safe")
+    dry = _tool(server, "set_budget")("Skiing", 300, month="2026-09")
+    out = _tool(server, "set_budget")("Skiing", 300, month="2026-09",
+                                      confirm_token=dry["confirm_token"])
+    assert out["updated"] is True
+    assert out["old_amount"] == 0.0 and out["new_amount"] == 300.0
+    assert svc._adapter.budget_calls == [("c2", Decimal("300.00"), "2026-09-01", False)]
+
+
+def test_set_budget_budgeted_dry_run_has_no_warning(tmp_path):
+    # Groceries (c1) already has a $200 budget → no unbudgeted warning.
+    _svc, _journal, server = _budget_server(tmp_path, write_mode="safe")
+    out = _tool(server, "set_budget")("Groceries", 250, month="2026-09")
+    assert out["dry_run"] is True
+    assert "warning" not in out
 
 
 def test_set_budget_negative_refused(tmp_path):

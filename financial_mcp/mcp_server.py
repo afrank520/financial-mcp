@@ -413,12 +413,13 @@ def build_server(
         category: str, amount: float, month: str | None = None,
         apply_to_future: bool = False, confirm_token: str | None = None,
     ) -> dict:
-        """Change the planned MONTHLY budget for an EXISTING budgeted category.
+        """Set or change the planned MONTHLY budget for a category.
 
         Sets `category`'s planned amount for `month` (YYYY-MM or YYYY-MM-DD; default
-        = the current month) to `amount`. Only changes a category that ALREADY has a
-        budget for that month — adding a budget to an unbudgeted category, or removing
-        one, is not supported yet and is refused clearly. `apply_to_future` defaults to
+        = the current month) to `amount`. Works for a category that already has a
+        budget AND for one that isn't budgeted yet (currently $0) — in the latter case
+        the dry-run carries a `warning` so the user confirms adding a new budget on
+        purpose. Removing a budget is not supported. `apply_to_future` defaults to
         False (this month only); pass True to also change all future months. IMPORTANT:
         budget changes are often meant to be ongoing, so the dry-run returns a
         `scope_prompt` — ask the user "just this month, or ongoing?" before confirming.
@@ -453,12 +454,14 @@ def build_server(
             except writes.WriteError as exc:
                 return {"error": str(exc)}
 
+            # Monarch reports an unbudgeted category as a $0 row, not an absent one
+            # (proven live 2026-09-28), so we can't tell "$0 budget" from "no budget"
+            # here. Treat a missing row the same as $0 and let the write through —
+            # updateOrCreateBudgetItem creates the budget when none exists — but when
+            # the current amount reads $0, warn the user so they confirm on purpose.
             rows = svc.budgets(first, last)
-            current = next((r.budgeted for r in rows if r.category_id == target.id), None)
-            if current is None:
-                return {"error": (
-                    f"No existing budget for {target.name!r} in {month_label} to change "
-                    f"— adding new budgets is coming later.")}
+            current = next((r.budgeted for r in rows if r.category_id == target.id),
+                           Decimal("0"))
 
             token = writes.compute_budget_token(target.id, start_date, amt, apply_to_future)
             scope_prompt = (
@@ -468,7 +471,7 @@ def build_server(
                   "apply to this month only, or to this and all future months.")
 
             if write_mode == "safe" and (confirm_token is None or confirm_token != token):
-                return {
+                dry = {
                     "dry_run": True,
                     "category": target.name,
                     "group": target.group,
@@ -481,6 +484,12 @@ def build_server(
                     "mode": write_mode,
                     "note": "no budget change made yet",
                 }
+                if current == Decimal("0"):
+                    dry["warning"] = (
+                        f"{target.name!r} is not budgeted yet for {month_label} "
+                        f"(currently $0). Confirming will add a new budget of "
+                        f"${amt} for it — proceed only if that's intended.")
+                return dry
 
             saved = svc.update_budget_item(target.id, amt, start_date, apply_to_future)
             if saved is None or abs(saved - amt) > Decimal("0.01"):

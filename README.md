@@ -110,9 +110,9 @@ Planned next, building on it:
 
 - Adherence tools that measure behavior against the plan — how the trajectory is
   tracking, where spending is diverging from the goals
-- Goal *editing* and budget *creation/removal* (changing an existing budgeted
-  category's monthly amount has landed; adding a budget to an unbudgeted
-  category, removing one, and editing goals are still planned)
+- Goal *editing* and budget *removal* (setting or changing a category's monthly
+  amount — including budgeting a category that wasn't budgeted yet — has landed;
+  removing a budget and editing goals are still planned)
 - Longer-horizon planning tools (e.g. debt glide-paths)
 
 > Any future advisory features are **not financial advice** — they're a way to
