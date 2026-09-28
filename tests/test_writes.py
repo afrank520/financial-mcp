@@ -327,6 +327,18 @@ def test_normalize_budget_amount_rejects_negative():
     assert "non-negative" in str(exc.value)
 
 
+def test_normalize_budget_amount_rejects_non_numeric():
+    for bad in ("abc", None, "", object()):
+        with pytest.raises(writes.WriteError):
+            writes.normalize_budget_amount(bad)
+
+
+def test_normalize_budget_amount_rejects_non_finite():
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(writes.WriteError):
+            writes.normalize_budget_amount(bad)
+
+
 def test_parse_budget_month_accepts_year_month():
     assert writes.parse_budget_month("2026-09") == datetime.date(2026, 9, 1)
 

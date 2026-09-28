@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import re
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from financial_mcp.analytics.spending import search
 from financial_mcp.monarch.models import Category, Transaction
@@ -234,8 +234,15 @@ def compute_category_rule_token(contains: str, category_id: str) -> str:
 
 def normalize_budget_amount(amount) -> Decimal:
     """Coerce a caller-supplied amount to a cents-quantized Decimal. Fail-closed
-    on negatives (v1 budgets expense categories, which are non-negative)."""
-    value = Decimal(str(amount)).quantize(Decimal("0.01"))
+    on non-numeric, non-finite, and negative inputs (v1 budgets expense
+    categories, which are non-negative)."""
+    try:
+        value = Decimal(str(amount))
+    except (InvalidOperation, ValueError, TypeError):
+        raise WriteError(f"amount must be a valid number, got {amount!r}")
+    if value.is_nan() or value.is_infinite():
+        raise WriteError(f"amount must be a finite number, got {amount!r}")
+    value = value.quantize(Decimal("0.01"))
     if value < 0:
         raise WriteError("amount must be non-negative")
     return value
